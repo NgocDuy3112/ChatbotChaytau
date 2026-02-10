@@ -1,11 +1,21 @@
+from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import Literal, Any
+from typing import Any
 from datetime import datetime
+from enum import Enum
 import uuid
 
 
-Role = Literal["user", "assistant", "system"]
-Status = Literal["pending", "completed", "failed"]
+class Role(str, Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+
+
+class Status(str, Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class BaseMessage(BaseModel):

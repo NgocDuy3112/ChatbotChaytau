@@ -9,7 +9,7 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = Field(None, description="Unique identifier for the conversation")
     instructions: str | None = Field(None, description="System instructions for the AI model")
     input: str = Field(..., description="User input prompt for the AI model")
-    model: str = Field("gemini-2.5-flash", description="AI model to be used for the conversation")
+    model: str = Field("gemini-2.0-flash-exp", description="AI model to be used for the conversation")
     file_paths: list[str] | None = Field(
         default_factory=list, 
         description="List of file paths to be used as context for the conversation"

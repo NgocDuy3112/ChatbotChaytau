@@ -4,10 +4,13 @@ from contextlib import asynccontextmanager
 
 from .api import chat
 from .dependencies.gemini_client import get_gemini_client
+from .dependencies.database import create_db_and_tables
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize database
+    create_db_and_tables()
     gemini_client = get_gemini_client()
     app.state.gemini_client = gemini_client
     yield
