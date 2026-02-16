@@ -1,0 +1,12 @@
+google-genai
+openai
+
+fastapi[standard]
+uvicorn[standard]
+
+pydantic
+pydantic_settings
+
+python-dotenv
+
+sqlmodel
