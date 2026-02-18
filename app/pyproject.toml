@@ -1,0 +1,18 @@
+[project]
+name = "app"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi[standard]>=0.129.0",
+    "google-genai>=1.63.0",
+    "httpx>=0.28.1",
+    "openai>=2.21.0",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.0",
+    "pyqt6>=6.7.0",
+    "python-dotenv>=1.2.1",
+    "sqlmodel>=0.0.34",
+    "uvicorn[standard]>=0.41.0",
+]

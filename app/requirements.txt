@@ -1,0 +1,17 @@
+google-genai
+
+fastapi[standard]
+uvicorn[standard]
+
+pydantic
+pydantic_settings
+
+python-dotenv
+
+sqlmodel
+
+PyQt6>=6.7.0
+httpx>=0.28.1
+python-docx>=1.1.2
+markdown>=3.7
+htmldocx>=0.0.6
