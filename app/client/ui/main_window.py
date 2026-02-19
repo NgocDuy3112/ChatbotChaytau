@@ -6,8 +6,9 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import QEvent, QObject, Qt
+from PyQt6.QtCore import QEvent, QObject, QSettings, Qt, QUrl
 from PyQt6.QtGui import QTextDocument
+from PyQt6.QtPrintSupport import QPrinter
 from PyQt6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -33,6 +34,7 @@ from ..api.client import ApiError, ChatApiClient
 from ..models.dto import BaseMessage, ChatRequest, Conversation
 from ..state.store import ChatMessage, ChatState
 from ..workers.stream_worker import ChatStreamWorker, StreamResult
+from .settings_dialog import AppSettingsValues, SettingsDialog
 
 
 class MainWindow(QMainWindow):
@@ -44,9 +46,17 @@ class MainWindow(QMainWindow):
         self.client = ChatApiClient(base_url=base_url or "http://localhost:8000")
         self.state = ChatState()
         self.stream_worker: ChatStreamWorker | None = None
+        self.settings = QSettings("ChatbotChaytau", "ChatbotDesktop")
+        self.available_models = [
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+            "gemini-3-flash-preview",
+            "gemini-3-pro-preview",
+        ]
 
         self._build_ui()
         self._apply_styles()
+        self._load_settings()
         self._load_conversations()
 
     def _build_ui(self) -> None:
@@ -67,6 +77,11 @@ class MainWindow(QMainWindow):
         refresh_btn.setObjectName("refreshButton")
         refresh_btn.clicked.connect(self._load_conversations)
         top_bar.addWidget(refresh_btn)
+
+        settings_btn = QPushButton("Cài đặt")
+        settings_btn.setObjectName("secondaryButton")
+        settings_btn.clicked.connect(self._open_settings_dialog)
+        top_bar.addWidget(settings_btn)
         root_layout.addLayout(top_bar)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -105,12 +120,7 @@ class MainWindow(QMainWindow):
         controls_row.setSpacing(8)
         self.model_input = QComboBox()
         self.model_input.setObjectName("modelInput")
-        self.model_input.addItems([
-            "gemini-2.5-flash",
-            "gemini-2.5-pro",
-            "gemini-3-flash-preview",
-            "gemini-3-pro-preview",
-        ])
+        self.model_input.addItems(self.available_models)
         model_label = QLabel("Mô hình")
         model_label.setObjectName("fieldLabel")
         controls_row.addWidget(model_label)
@@ -125,6 +135,7 @@ class MainWindow(QMainWindow):
         self.chat_view = QTextBrowser()
         self.chat_view.setObjectName("chatView")
         self.chat_view.setOpenLinks(False)
+        self.chat_view.anchorClicked.connect(self._on_chat_link_clicked)
         right_layout.addWidget(self.chat_view, 1)
 
         attachments_row = QHBoxLayout()
@@ -144,27 +155,23 @@ class MainWindow(QMainWindow):
         attachments_row.addWidget(self.attachment_label, 1)
         right_layout.addLayout(attachments_row)
 
+        input_row = QHBoxLayout()
+        input_row.setSpacing(8)
+
         self.input_box = QTextEdit()
         self.input_box.setObjectName("inputBox")
         self.input_box.setPlaceholderText("Nhập tin nhắn...")
-        self.input_box.setFixedHeight(88)
+        self.input_box.setFixedHeight(60)
         self.input_box.installEventFilter(self)
-        right_layout.addWidget(self.input_box)
-
-        send_row = QHBoxLayout()
-        send_row.setSpacing(8)
-        send_row.addStretch(1)
-        export_btn = QPushButton("Xuất file Word")
-        export_btn.setObjectName("secondaryButton")
-        export_btn.clicked.connect(self._export_conversation_to_word)
-        send_row.addWidget(export_btn)
+        input_row.addWidget(self.input_box, 1)
 
         self.send_button = QPushButton("Gửi")
         self.send_button.setObjectName("sendButton")
-        self.send_button.setMinimumWidth(96)
+        self.send_button.setFixedSize(74, 60)
         self.send_button.clicked.connect(self._send_message)
-        send_row.addWidget(self.send_button)
-        right_layout.addLayout(send_row)
+        input_row.addWidget(self.send_button)
+
+        right_layout.addLayout(input_row)
 
         splitter.addWidget(right_panel)
         splitter.setSizes([300, 900])
@@ -293,6 +300,82 @@ class MainWindow(QMainWindow):
         self._render_messages()
         self._update_attachment_label()
         self.statusBar().showMessage("Đã tạo cuộc trò chuyện mới", 3000)
+
+    def _open_settings_dialog(self) -> None:
+        dialog = SettingsDialog(
+            current_values=self._current_settings_values(),
+            available_models=list(self.available_models),
+            parent=self,
+        )
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+
+        values = dialog.values()
+        if not values.base_url:
+            self._show_error("Backend URL không được để trống.")
+            return
+
+        previous_base_url = self.client.base_url
+        self._apply_settings_values(values)
+        self._persist_settings(values)
+
+        if self.client.base_url != previous_base_url:
+            self.state.reset_chat()
+            self._render_messages()
+            self._update_attachment_label()
+            self._load_conversations()
+
+        self.statusBar().showMessage("Đã lưu cài đặt", 3000)
+
+    def _current_settings_values(self) -> AppSettingsValues:
+        return AppSettingsValues(
+            base_url=self.client.base_url,
+            timeout=float(self.client.timeout),
+            default_model=self.model_input.currentText().strip(),
+            default_instructions=self.instructions_input.text().strip(),
+        )
+
+    def _apply_settings_values(self, values: AppSettingsValues) -> None:
+        self.client.set_base_url(values.base_url)
+        self.client.timeout = float(values.timeout)
+
+        if values.default_model and self.model_input.findText(values.default_model) < 0:
+            self.model_input.addItem(values.default_model)
+        if values.default_model:
+            self.model_input.setCurrentText(values.default_model)
+
+        self.instructions_input.setText(values.default_instructions)
+
+    def _persist_settings(self, values: AppSettingsValues) -> None:
+        self.settings.setValue("client/base_url", values.base_url)
+        self.settings.setValue("client/timeout", float(values.timeout))
+        self.settings.setValue("chat/default_model", values.default_model)
+        self.settings.setValue("chat/default_instructions", values.default_instructions)
+        self.settings.sync()
+
+    def _load_settings(self) -> None:
+        base_url_raw = self.settings.value("client/base_url", self.client.base_url)
+        timeout_raw = self.settings.value("client/timeout", self.client.timeout)
+        model_raw = self.settings.value("chat/default_model", self.model_input.currentText())
+        instructions_raw = self.settings.value("chat/default_instructions", "")
+
+        base_url = str(base_url_raw or "").strip() or self.client.base_url
+        try:
+            timeout_value = float(timeout_raw)
+        except (TypeError, ValueError):
+            timeout_value = float(self.client.timeout)
+
+        model = str(model_raw or "").strip() or self.model_input.currentText().strip()
+        instructions = str(instructions_raw or "")
+
+        self._apply_settings_values(
+            AppSettingsValues(
+                base_url=base_url,
+                timeout=timeout_value,
+                default_model=model,
+                default_instructions=instructions,
+            )
+        )
 
     def _load_conversations(self) -> None:
         selected_id = self.state.current_conversation_id
@@ -525,7 +608,7 @@ class MainWindow(QMainWindow):
             )
         ]
 
-        for message in self.state.messages:
+        for message_index, message in enumerate(self.state.messages):
             role = message.role.lower()
             title = "Bạn" if role == "user" else "Trợ lý"
             text = self._render_markdown_html(message.text)
@@ -545,6 +628,24 @@ class MainWindow(QMainWindow):
                 bubble_border = "#dfe3ea"
                 title_color = "#374151"
 
+            actions_html = ""
+            if role == "assistant" and message.text.strip():
+                actions_html = (
+                    "<table cellspacing='0' cellpadding='0' style='margin-top:8px;'>"
+                    "<tr>"
+                    "<td style='background:#eef2ff; border:1px solid #c7d2fe; border-radius:6px; padding:4px 8px;'>"
+                    f"<a href='action://export-word/{message_index}' style='text-decoration:none; color:#1e3a8a; font-weight:600;'>"
+                    "📄 Xuất file Word</a>"
+                    "</td>"
+                    "<td style='width:20px; min-width:20px;'>&nbsp;</td>"
+                    "<td style='background:#ecfeff; border:1px solid #a5f3fc; border-radius:6px; padding:4px 8px;'>"
+                    f"<a href='action://export-pdf/{message_index}' style='text-decoration:none; color:#155e75; font-weight:600;'>"
+                    "📕 Xuất file PDF</a>"
+                    "</td>"
+                    "</tr>"
+                    "</table>"
+                )
+
             bubble = (
                 "<table width='100%' cellspacing='0' cellpadding='0' style='margin:0 0 10px 0;'>"
                 f"<tr><td align='{align}'>"
@@ -553,6 +654,7 @@ class MainWindow(QMainWindow):
                 "<tr><td style='padding:8px 10px 6px 10px;'>"
                 f"<div style='font-weight:700; color:{title_color}; margin-bottom:4px;'>{title}</div>"
                 f"<div style='line-height:1.42; color:#111827;'>{text}</div>"
+                f"{actions_html}"
                 f"<div style='font-size:11px; color:#6b7280; margin-top:6px;'>{timestamp}</div>"
                 "</td></tr></table>"
                 "</td></tr></table>"
@@ -568,6 +670,37 @@ class MainWindow(QMainWindow):
         if isinstance(content_text, str):
             return content_text
         return str(content_text)
+
+    def _on_chat_link_clicked(self, url: QUrl) -> None:
+        if url.scheme() != "action":
+            return
+
+        action = url.host().strip().lower()
+        raw_index = url.path().lstrip("/")
+        try:
+            message_index = int(raw_index)
+        except ValueError:
+            self._show_error("Liên kết thao tác không hợp lệ.")
+            return
+
+        if message_index < 0 or message_index >= len(self.state.messages):
+            self._show_error("Không tìm thấy phản hồi cần xuất.")
+            return
+
+        message = self.state.messages[message_index]
+        if message.role.lower() != "assistant" or not message.text.strip():
+            self._show_error("Chỉ có thể xuất phản hồi của Trợ lý.")
+            return
+
+        if action == "export-word":
+            self._export_assistant_message_to_word(message)
+            return
+
+        if action == "export-pdf":
+            self._export_assistant_message_to_pdf(message)
+            return
+
+        self._show_error("Thao tác chưa được hỗ trợ.")
 
     def _render_markdown_html(self, text: str) -> str:
         normalized = text.strip()
@@ -609,6 +742,17 @@ class MainWindow(QMainWindow):
 
         latest_assistant_message = assistant_messages[-1]
 
+        self._export_assistant_message_to_word(latest_assistant_message)
+
+    def _export_assistant_message_to_word(self, assistant_message: ChatMessage) -> None:
+        if assistant_message.role.lower() != "assistant" or not assistant_message.text.strip():
+            QMessageBox.information(
+                self,
+                "Xuất Word",
+                "Phản hồi Trợ lý không có nội dung để xuất.",
+            )
+            return
+
         try:
             from docx import Document
             from htmldocx import HtmlToDocx
@@ -639,7 +783,7 @@ class MainWindow(QMainWindow):
         if output_path.suffix.lower() != ".docx":
             output_path = output_path.with_suffix(".docx")
 
-        markdown_text = latest_assistant_message.text.strip()
+        markdown_text = assistant_message.text.strip()
         if not markdown_text:
             QMessageBox.information(
                 self,
@@ -664,6 +808,51 @@ class MainWindow(QMainWindow):
             document.save(str(output_path))
         except Exception as exc:
             self._show_error(f"Không thể lưu file Word: {exc}")
+            return
+
+        self.statusBar().showMessage(f"Đã xuất 1 phản hồi Trợ lý: {output_path.name}", 4000)
+
+    def _export_assistant_message_to_pdf(self, assistant_message: ChatMessage) -> None:
+        if assistant_message.role.lower() != "assistant" or not assistant_message.text.strip():
+            QMessageBox.information(
+                self,
+                "Xuất PDF",
+                "Phản hồi Trợ lý không có nội dung để xuất.",
+            )
+            return
+
+        title = self._current_conversation_title() or "Cuộc trò chuyện"
+        default_stem = self._safe_filename(f"{title}_tro_ly_{datetime.now().strftime('%Y%m%d_%H%M')}")
+        default_dir = Path.home() / "Documents"
+        if not default_dir.exists():
+            default_dir = Path.home()
+        default_path = default_dir / f"{default_stem}.pdf"
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Lưu file PDF",
+            str(default_path),
+            "PDF Document (*.pdf)",
+        )
+        if not file_path:
+            return
+
+        output_path = Path(file_path)
+        if output_path.suffix.lower() != ".pdf":
+            output_path = output_path.with_suffix(".pdf")
+
+        markdown_text = assistant_message.text.strip()
+        document = QTextDocument()
+        document.setMarkdown(markdown_text)
+
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+        printer.setOutputFileName(str(output_path))
+
+        try:
+            document.print(printer)
+        except Exception as exc:
+            self._show_error(f"Không thể lưu file PDF: {exc}")
             return
 
         self.statusBar().showMessage(f"Đã xuất 1 phản hồi Trợ lý: {output_path.name}", 4000)
