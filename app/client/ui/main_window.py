@@ -65,7 +65,7 @@ class WheelEventFilter(QObject):
 
 
 class MainWindow(QMainWindow):
-    _WINDOW_SIZE = (1500, 1000)
+    _WINDOW_SIZE = (1500, 800)
     _MAIN_SPLITTER_SIZES = [240, 960]
     _RIGHT_SPLITTER_SIZES = [520, 300]
     _PROMPT_COMPANY_KEY = "ten_cong_ty"
@@ -205,15 +205,22 @@ class MainWindow(QMainWindow):
 
         attachments_row = QHBoxLayout()
         attachments_row.setSpacing(8)
+
+        # Stack the file action buttons in a vertical column to save horizontal space
+        file_buttons_col = QVBoxLayout()
+        file_buttons_col.setSpacing(8)
+
         self.add_file_button = QPushButton("Thêm tệp")
         self.add_file_button.setObjectName("addFileButton")
         self.add_file_button.clicked.connect(self._attach_files)
-        attachments_row.addWidget(self.add_file_button)
+        file_buttons_col.addWidget(self.add_file_button)
 
         self.clear_file_button = QPushButton("Xóa tệp")
         self.clear_file_button.setObjectName("clearFileButton")
         self.clear_file_button.clicked.connect(self._clear_attachments)
-        attachments_row.addWidget(self.clear_file_button)
+        file_buttons_col.addWidget(self.clear_file_button)
+
+        file_buttons_col.addStretch(1)
 
         self.attachment_list = QListWidget()
         self.attachment_list.setObjectName("attachmentList")
@@ -224,6 +231,8 @@ class MainWindow(QMainWindow):
         self.attachment_list.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         self.attachment_list.setMinimumHeight(112)
         self.attachment_list.setMaximumHeight(112)
+
+        attachments_row.addLayout(file_buttons_col)
         attachments_row.addWidget(self.attachment_list, 1)
         chat_layout.addLayout(attachments_row)
 
@@ -664,11 +673,6 @@ class MainWindow(QMainWindow):
                     "Dịch thuật/Chuyển đổi",
                     "Tóm tắt thông tin",
                 ],
-            },
-            "doi_tuong": {
-                "label": "Đối tượng nhận",
-                "type": "combo",
-                "options": ["Khách hàng", "Quản lý/Sếp", "Đồng nghiệp", "Công chúng", "Đối tác"],
             },
             "giong_van": {
                 "label": "Giọng văn",
