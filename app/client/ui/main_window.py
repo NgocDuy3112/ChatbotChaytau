@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import csv
 import re
 import uuid
 from datetime import datetime
@@ -10,6 +11,7 @@ from PyQt6.QtCore import QEvent, QObject, QSettings, Qt, QUrl
 from PyQt6.QtGui import QTextDocument
 from PyQt6.QtPrintSupport import QPrinter
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
@@ -22,6 +24,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QMenu,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QStatusBar,
     QTextBrowser,
@@ -35,24 +38,79 @@ from ..models.dto import BaseMessage, ChatRequest, Conversation
 from ..state.store import ChatMessage, ChatState
 from ..workers.stream_worker import ChatStreamWorker, StreamResult
 from .settings_dialog import AppSettingsValues, SettingsDialog
+from ..utils.resources import get_instructions_dir, get_sheets_dir
+
+
+class WheelEventFilter(QObject):
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.Wheel:
+            if isinstance(obj, QComboBox):
+                if not obj.view().isVisible():
+                    event.ignore()
+                    return True
+                return super().eventFilter(obj, event)
+
+            if isinstance(obj, QLineEdit) and isinstance(obj.parent(), QComboBox):
+                combo = obj.parent()
+                if isinstance(combo, QComboBox) and not combo.view().isVisible():
+                    event.ignore()
+                    return True
+                return super().eventFilter(obj, event)
+
+            # Nếu widget chưa được focus thì ignore wheel event để nó tự trả về cho ScrollArea cha
+            if not obj.hasFocus():
+                event.ignore()
+                return True
+        return super().eventFilter(obj, event)
 
 
 class MainWindow(QMainWindow):
+    _WINDOW_SIZE = (1500, 1000)
+    _MAIN_SPLITTER_SIZES = [240, 960]
+    _RIGHT_SPLITTER_SIZES = [520, 300]
+    _PROMPT_COMPANY_KEY = "ten_cong_ty"
+    _PROMPT_ROLE_KEY = "vai_tro"
+    _PROMPT_WORK_KEY = "noi_dung_chi_tiet"
+    _HIDDEN_PROMPT_KEYS = {"muc_tieu", "noi_dung_chi_tiet"}
+    _BASE_INSTRUCTION_PREFIXES = ("0_", "00_")
+    _DEFAULT_OVERLAY_PREFIXES = ("3_", "03_")
+    _TEMPLATE_INSTRUCTION_PREFIXES = ("5_", "01_")
+    _WORK_INSTRUCTION_PREFIXES = ("1_", "2_", "3_", "4_")
+
     def __init__(self, base_url: str | None = None):
         super().__init__()
         self.setWindowTitle("Chatbot Desktop")
-        self.resize(1180, 760)
+        self.setFixedSize(*self._WINDOW_SIZE)
 
         self.client = ChatApiClient(base_url=base_url or "http://localhost:8000")
         self.state = ChatState()
         self.stream_worker: ChatStreamWorker | None = None
         self.settings = QSettings("ChatbotChaytau", "ChatbotDesktop")
         self.available_models = [
+            "gemini-2.5-flash-lite",
             "gemini-2.5-flash",
             "gemini-2.5-pro",
             "gemini-3-flash-preview",
             "gemini-3-pro-preview",
+            "gemini-3.1-pro-preview",
         ]
+        self.prompt_template_text = ""
+        self.prompt_field_inputs: dict[str, QWidget] = {}
+        self.prompt_options: dict[str, list[str]] = {}
+        self.work_prompt_map: dict[str, str] = {}
+        self.company_context_by_name: dict[str, str] = {}
+        self.company_context_lookup: dict[str, str] = {}
+        self.company_context_checkbox: QCheckBox | None = None
+        self._restoring_right_panel_settings = False
+        self.default_instruction_profile_text = self._load_default_instruction_profile_text()
+        self.default_instructions_text = self.default_instruction_profile_text
+        self.wheel_event_filter = WheelEventFilter(self)
+        (
+            self.prompt_options,
+            self.company_context_by_name,
+            self.company_context_lookup,
+            self.work_prompt_map,
+        ) = self._load_prompt_bundle_data()
 
         self._build_ui()
         self._apply_styles()
@@ -121,39 +179,53 @@ class MainWindow(QMainWindow):
         self.model_input = QComboBox()
         self.model_input.setObjectName("modelInput")
         self.model_input.addItems(self.available_models)
+        self.model_input.installEventFilter(self.wheel_event_filter)
+        self.model_input.currentTextChanged.connect(self._on_right_panel_setting_changed)
         model_label = QLabel("Mô hình")
         model_label.setObjectName("fieldLabel")
         controls_row.addWidget(model_label)
         controls_row.addWidget(self.model_input)
 
-        self.instructions_input = QLineEdit()
-        self.instructions_input.setObjectName("instructionsInput")
-        self.instructions_input.setPlaceholderText("Chỉ dẫn hệ thống (không bắt buộc)")
-        controls_row.addWidget(self.instructions_input, 1)
+        controls_row.addStretch(1)
         right_layout.addLayout(controls_row)
+
+        right_splitter = QSplitter(Qt.Orientation.Horizontal)
+        right_splitter.setHandleWidth(1)
+
+        chat_container = QWidget()
+        chat_layout = QVBoxLayout(chat_container)
+        chat_layout.setContentsMargins(0, 0, 0, 0)
+        chat_layout.setSpacing(8)
 
         self.chat_view = QTextBrowser()
         self.chat_view.setObjectName("chatView")
         self.chat_view.setOpenLinks(False)
         self.chat_view.anchorClicked.connect(self._on_chat_link_clicked)
-        right_layout.addWidget(self.chat_view, 1)
+        chat_layout.addWidget(self.chat_view, 1)
 
         attachments_row = QHBoxLayout()
         attachments_row.setSpacing(8)
-        attach_btn = QPushButton("Đính kèm tệp")
-        attach_btn.setObjectName("secondaryButton")
-        attach_btn.clicked.connect(self._attach_files)
-        attachments_row.addWidget(attach_btn)
+        self.add_file_button = QPushButton("Thêm tệp")
+        self.add_file_button.setObjectName("addFileButton")
+        self.add_file_button.clicked.connect(self._attach_files)
+        attachments_row.addWidget(self.add_file_button)
 
-        clear_attach_btn = QPushButton("Xóa tệp")
-        clear_attach_btn.setObjectName("secondaryButton")
-        clear_attach_btn.clicked.connect(self._clear_attachments)
-        attachments_row.addWidget(clear_attach_btn)
+        self.clear_file_button = QPushButton("Xóa tệp")
+        self.clear_file_button.setObjectName("clearFileButton")
+        self.clear_file_button.clicked.connect(self._clear_attachments)
+        attachments_row.addWidget(self.clear_file_button)
 
-        self.attachment_label = QLabel("Chưa có tệp đính kèm")
-        self.attachment_label.setObjectName("attachmentLabel")
-        attachments_row.addWidget(self.attachment_label, 1)
-        right_layout.addLayout(attachments_row)
+        self.attachment_list = QListWidget()
+        self.attachment_list.setObjectName("attachmentList")
+        self.attachment_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        self.attachment_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.attachment_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.attachment_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.attachment_list.setTextElideMode(Qt.TextElideMode.ElideMiddle)
+        self.attachment_list.setMinimumHeight(112)
+        self.attachment_list.setMaximumHeight(112)
+        attachments_row.addWidget(self.attachment_list, 1)
+        chat_layout.addLayout(attachments_row)
 
         input_row = QHBoxLayout()
         input_row.setSpacing(8)
@@ -171,10 +243,40 @@ class MainWindow(QMainWindow):
         self.send_button.clicked.connect(self._send_message)
         input_row.addWidget(self.send_button)
 
-        right_layout.addLayout(input_row)
+        chat_layout.addLayout(input_row)
+
+        self.response_status_label = QLabel("Trạng thái phản hồi: Sẵn sàng")
+        self.response_status_label.setObjectName("responseStatusLabel")
+        self.response_status_label.setProperty("state", "idle")
+        chat_layout.addWidget(self.response_status_label)
+
+        self._update_attachment_label()
+        right_splitter.addWidget(chat_container)
+
+        prompt_sidebar = QWidget()
+        prompt_sidebar.setObjectName("promptSidebar")
+        prompt_layout = QVBoxLayout(prompt_sidebar)
+        prompt_layout.setContentsMargins(8, 8, 8, 8)
+        prompt_layout.setSpacing(8)
+
+        prompt_scroll = QScrollArea()
+        prompt_scroll.setObjectName("promptScroll")
+        prompt_scroll.setWidgetResizable(True)
+        prompt_form_widget = QWidget()
+        self.prompt_form_layout = QVBoxLayout(prompt_form_widget)
+        self.prompt_form_layout.setContentsMargins(0, 0, 0, 0)
+        self.prompt_form_layout.setSpacing(6)
+        prompt_scroll.setWidget(prompt_form_widget)
+        prompt_layout.addWidget(prompt_scroll, 1)
+
+        self._load_prompt_sidebar_fields()
+
+        right_splitter.addWidget(prompt_sidebar)
+        right_splitter.setSizes(self._RIGHT_SPLITTER_SIZES)
+        right_layout.addWidget(right_splitter, 1)
 
         splitter.addWidget(right_panel)
-        splitter.setSizes([300, 900])
+        splitter.setSizes(self._MAIN_SPLITTER_SIZES)
         root_layout.addWidget(splitter, 1)
 
         self.setCentralWidget(root)
@@ -257,6 +359,30 @@ class MainWindow(QMainWindow):
                 background: #1d4ed8;
             }
 
+            #addFileButton {
+                background: #2563eb;
+                color: #ffffff;
+                border: 1px solid #2563eb;
+                font-weight: 600;
+                padding: 6px 10px;
+            }
+
+            #addFileButton:hover {
+                background: #1d4ed8;
+            }
+
+            #clearFileButton {
+                background: #ffffff;
+                color: #4b5563;
+                border: 1px solid #d1d5db;
+                font-weight: 600;
+                padding: 6px 10px;
+            }
+
+            #clearFileButton:hover {
+                background: #f3f4f6;
+            }
+
             #conversationList {
                 border: 1px solid #e5e7eb;
                 border-radius: 8px;
@@ -288,8 +414,105 @@ class MainWindow(QMainWindow):
                 padding: 6px;
             }
 
-            #attachmentLabel {
+            #promptSidebar {
+                background: #f8fafc;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
+            }
+
+            #promptHint {
+                color: #6b7280;
+                font-size: 12px;
+                margin-bottom: 4px;
+            }
+
+            /* Style cho input và combo trong sidebar */
+            #promptFieldInput {
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                background: #ffffff;
+                padding: 4px 8px;
+                min-height: 28px;
+            }
+
+            QComboBox QAbstractItemView {
+                min-width: 750px;
+            }
+
+            /* Đảm bảo QComboBox có mũi tên rõ ràng */
+            QComboBox#promptFieldInput {
+                padding: 4px 8px; 
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                background: #ffffff;
+                min-height: 28px;
+            }
+
+            QComboBox#promptFieldInput::drop-down {
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 30px;
+                border-left: 1px solid #d1d5db;
+                border-top-right-radius: 6px;
+                border-bottom-right-radius: 6px;
+                background: #f3f4f6;
+            }
+
+            QComboBox#promptFieldInput::down-arrow {
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 6px solid #4b5563;
+                width: 0;
+                height: 0;
+            }
+
+            QComboBox#promptFieldInput::drop-down:hover {
+                background: #e5e7eb;
+            }
+
+            QComboBox#promptFieldInput:on {
+                border-bottom-left-radius: 0px;
+                border-bottom-right-radius: 0px;
+            }
+
+            QComboBox#promptFieldInput:hover, QTextEdit#promptFieldInput:hover {
+                border-color: #3b82f6;
+            }
+
+            QTextEdit#promptFieldInput {
+                padding: 6px;
+            }
+
+            #attachmentList {
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                background: #ffffff;
+                padding: 2px;
                 color: #4b5563;
+            }
+
+            #attachmentList::item {
+                padding: 3px 6px;
+            }
+
+            #responseStatusLabel {
+                color: #6b7280;
+                font-size: 12px;
+                font-weight: 600;
+                padding-left: 2px;
+            }
+
+            #responseStatusLabel[state="processing"] {
+                color: #2563eb;
+            }
+
+            #responseStatusLabel[state="done"] {
+                color: #059669;
+            }
+
+            #responseStatusLabel[state="error"] {
+                color: #dc2626;
             }
             """
         )
@@ -299,6 +522,7 @@ class MainWindow(QMainWindow):
         self.conversation_list.clearSelection()
         self._render_messages()
         self._update_attachment_label()
+        self._set_response_status("Trạng thái phản hồi: Sẵn sàng", "idle")
         self.statusBar().showMessage("Đã tạo cuộc trò chuyện mới", 3000)
 
     def _open_settings_dialog(self) -> None:
@@ -311,19 +535,8 @@ class MainWindow(QMainWindow):
             return
 
         values = dialog.values()
-        if not values.base_url:
-            self._show_error("Backend URL không được để trống.")
-            return
-
-        previous_base_url = self.client.base_url
         self._apply_settings_values(values)
         self._persist_settings(values)
-
-        if self.client.base_url != previous_base_url:
-            self.state.reset_chat()
-            self._render_messages()
-            self._update_attachment_label()
-            self._load_conversations()
 
         self.statusBar().showMessage("Đã lưu cài đặt", 3000)
 
@@ -332,7 +545,7 @@ class MainWindow(QMainWindow):
             base_url=self.client.base_url,
             timeout=float(self.client.timeout),
             default_model=self.model_input.currentText().strip(),
-            default_instructions=self.instructions_input.text().strip(),
+            default_instructions=self.default_instructions_text,
         )
 
     def _apply_settings_values(self, values: AppSettingsValues) -> None:
@@ -344,7 +557,7 @@ class MainWindow(QMainWindow):
         if values.default_model:
             self.model_input.setCurrentText(values.default_model)
 
-        self.instructions_input.setText(values.default_instructions)
+        self.default_instructions_text = values.default_instructions
 
     def _persist_settings(self, values: AppSettingsValues) -> None:
         self.settings.setValue("client/base_url", values.base_url)
@@ -354,28 +567,641 @@ class MainWindow(QMainWindow):
         self.settings.sync()
 
     def _load_settings(self) -> None:
-        base_url_raw = self.settings.value("client/base_url", self.client.base_url)
-        timeout_raw = self.settings.value("client/timeout", self.client.timeout)
-        model_raw = self.settings.value("chat/default_model", self.model_input.currentText())
-        instructions_raw = self.settings.value("chat/default_instructions", "")
-
-        base_url = str(base_url_raw or "").strip() or self.client.base_url
+        self._restoring_right_panel_settings = True
         try:
-            timeout_value = float(timeout_raw)
-        except (TypeError, ValueError):
-            timeout_value = float(self.client.timeout)
+            base_url_raw = self.settings.value("client/base_url", self.client.base_url)
+            timeout_raw = self.settings.value("client/timeout", self.client.timeout)
+            model_raw = self.settings.value("chat/default_model", self.model_input.currentText())
+            instructions_raw = self.settings.value("chat/default_instructions", "")
 
-        model = str(model_raw or "").strip() or self.model_input.currentText().strip()
-        instructions = str(instructions_raw or "")
+            base_url = str(base_url_raw or "").strip() or self.client.base_url
+            try:
+                timeout_value = float(timeout_raw)
+            except (TypeError, ValueError):
+                timeout_value = float(self.client.timeout)
 
-        self._apply_settings_values(
-            AppSettingsValues(
-                base_url=base_url,
-                timeout=timeout_value,
-                default_model=model,
-                default_instructions=instructions,
+            model = str(model_raw or "").strip() or self.model_input.currentText().strip()
+            instructions = str(instructions_raw or "").strip()
+            if not instructions:
+                instructions = self.default_instruction_profile_text
+
+            self._apply_settings_values(
+                AppSettingsValues(
+                    base_url=base_url,
+                    timeout=timeout_value,
+                    default_model=model,
+                    default_instructions=instructions,
+                )
             )
+        finally:
+            self._restoring_right_panel_settings = False
+
+    def _load_prompt_sidebar_fields(self) -> None:
+        self.prompt_template_text = self._load_prompt_template_text()
+        self.prompt_field_inputs.clear()
+        self.company_context_checkbox = None
+
+        self._clear_prompt_form_layout()
+
+        if not self.prompt_template_text:
+            self._add_prompt_sidebar_fallback(
+                "Không tìm thấy file template prompt trong resources/instructions."
+            )
+            return
+
+        placeholders = self._extract_unique_placeholders(self.prompt_template_text)
+        if not placeholders:
+            self._add_prompt_sidebar_fallback(
+                "Prompt 01 không có placeholder dạng {{variable}} để tạo input field."
+            )
+            return
+
+        var_config = self._prompt_variable_config()
+
+        for placeholder in placeholders:
+            if placeholder in self._HIDDEN_PROMPT_KEYS:
+                continue
+            self._add_prompt_field(placeholder, var_config.get(placeholder, {}))
+
+        self._add_company_context_checkbox_if_available()
+
+        self._restore_prompt_sidebar_settings()
+        self.prompt_form_layout.addStretch(1)
+
+    def _clear_prompt_form_layout(self) -> None:
+        while self.prompt_form_layout.count():
+            item = self.prompt_form_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _add_prompt_sidebar_fallback(self, message: str) -> None:
+        fallback_label = QLabel(message)
+        fallback_label.setWordWrap(True)
+        self.prompt_form_layout.addWidget(fallback_label)
+        self.prompt_form_layout.addStretch(1)
+
+    def _prompt_variable_config(self) -> dict[str, dict[str, object]]:
+        return {
+            "ten_cong_ty": {
+                "label": "Tên công ty / Bối cảnh",
+                "type": "combo",
+                "options": [],
+            },
+            "vai_tro": {
+                "label": "Vai trò của bạn",
+                "type": "combo",
+                "options": [],
+            },
+            "loai_nhiem_vu": {
+                "label": "Loại nhiệm vụ",
+                "type": "combo",
+                "options": [
+                    "Tạo nội dung",
+                    "Phân tích dữ liệu",
+                    "Lập kế hoạch/Chiến lược",
+                    "Tối ưu hóa/Cải thiện",
+                    "Dịch thuật/Chuyển đổi",
+                    "Tóm tắt thông tin",
+                ],
+            },
+            "doi_tuong": {
+                "label": "Đối tượng nhận",
+                "type": "combo",
+                "options": ["Khách hàng", "Quản lý/Sếp", "Đồng nghiệp", "Công chúng", "Đối tác"],
+            },
+            "giong_van": {
+                "label": "Giọng văn",
+                "type": "combo",
+                "options": ["Chuyên nghiệp", "Thân thiện", "Thuyết phục", "Phân tích", "Hài hước", "Lịch sự"],
+            },
+            "chuyen_mon": {
+                "label": "Mức độ chuyên môn",
+                "type": "combo",
+                "options": ["Cơ bản", "Trung cấp", "Chuyên gia"],
+            },
+            "dinh_dang": {
+                "label": "Định dạng kết quả",
+                "type": "combo",
+                "options": ["Markdown", "Email", "Báo cáo", "Bảng biểu", "Danh sách", "Đoạn văn tự do"],
+            },
+            "trinh_bay": {
+                "label": "Yêu cầu trình bày",
+                "type": "combo",
+                "options": [
+                    "Có tiêu đề rõ ràng, dùng bullet point",
+                    "Trình bày dạng bảng so sánh",
+                    "Phân tích từng bước chi tiết",
+                    "Sử dụng ví dụ minh họa",
+                ],
+            },
+            "gioi_han": {
+                "label": "Giới hạn độ dài",
+                "type": "combo",
+                "options": ["Không giới hạn", "Dưới 500 từ", "Tối đa 3 mục chính", "Khoảng 1 trang A4"],
+            },
+        }
+
+    def _add_prompt_field(self, placeholder: str, config: dict[str, object]) -> None:
+        display_label = str(config.get("label") or placeholder)
+        input_type = str(config.get("type") or "combo")
+
+        label = QLabel(f"{display_label}:")
+        label.setWordWrap(True)
+        self.prompt_form_layout.addWidget(label)
+
+        input_field = self._build_prompt_field_widget(placeholder, display_label, input_type, config)
+        self.prompt_form_layout.addWidget(input_field)
+        self.prompt_form_layout.addSpacing(6)
+        self.prompt_field_inputs[placeholder] = input_field
+        self._connect_prompt_field_autosave(input_field)
+
+    def _build_prompt_field_widget(
+        self,
+        placeholder: str,
+        display_label: str,
+        input_type: str,
+        config: dict[str, object],
+    ) -> QWidget:
+        if input_type == "text":
+            input_field = QTextEdit()
+            input_field.setObjectName("promptFieldInput")
+            input_field.setPlaceholderText(str(config.get("placeholder") or ""))
+            input_field.setFixedHeight(80)
+            input_field.installEventFilter(self.wheel_event_filter)
+            return input_field
+
+        merged_options = self._merged_prompt_options(placeholder, config)
+        input_field = self._create_prompt_input_widget(display_label, merged_options)
+        input_field.installEventFilter(self.wheel_event_filter)
+        return input_field
+
+    def _merged_prompt_options(self, placeholder: str, config: dict[str, object]) -> list[str]:
+        dynamic_options = self.prompt_options.get(placeholder, [])
+        raw_default_options = config.get("options")
+        if not isinstance(raw_default_options, list):
+            raw_default_options = []
+
+        default_options = [str(item) for item in raw_default_options if isinstance(item, str)]
+        return list(dict.fromkeys(dynamic_options + default_options))
+
+    def _add_company_context_checkbox_if_available(self) -> None:
+        if not self.company_context_by_name:
+            return
+
+        self.company_context_checkbox = QCheckBox("Đính kèm thông tin công ty tham chiếu")
+        self.company_context_checkbox.setChecked(False)
+        self.company_context_checkbox.toggled.connect(self._on_right_panel_setting_changed)
+        self.prompt_form_layout.addSpacing(4)
+        self.prompt_form_layout.addWidget(self.company_context_checkbox)
+
+    def _connect_prompt_field_autosave(self, input_field: QWidget) -> None:
+        if isinstance(input_field, QLineEdit):
+            input_field.textChanged.connect(self._on_right_panel_setting_changed)
+            return
+
+        if isinstance(input_field, QComboBox):
+            input_field.currentTextChanged.connect(self._on_right_panel_setting_changed)
+            return
+
+        if isinstance(input_field, QTextEdit):
+            input_field.textChanged.connect(self._on_right_panel_setting_changed)
+
+    def _restore_prompt_sidebar_settings(self) -> None:
+        self._restoring_right_panel_settings = True
+
+        for placeholder, input_field in self.prompt_field_inputs.items():
+            key = f"prompt_sidebar/field/{placeholder}"
+            raw_value = self.settings.value(key)
+            if raw_value is None:
+                continue
+
+            value = str(raw_value)
+            if isinstance(input_field, QLineEdit):
+                input_field.setText(value)
+                continue
+
+            if isinstance(input_field, QComboBox):
+                input_field.setCurrentText(value)
+                continue
+
+            if isinstance(input_field, QTextEdit):
+                input_field.setPlainText(value)
+
+        if self.company_context_checkbox is not None:
+            checkbox_raw = self.settings.value("prompt_sidebar/company_context_enabled", False)
+            checkbox_value = self._coerce_setting_bool(checkbox_raw)
+            self.company_context_checkbox.setChecked(checkbox_value)
+
+        self._restoring_right_panel_settings = False
+
+    def _coerce_setting_bool(self, value: object) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        if isinstance(value, (int, float)):
+            return bool(value)
+        return False
+
+    def _on_right_panel_setting_changed(self, *_args) -> None:
+        if self._restoring_right_panel_settings:
+            return
+
+        self.settings.setValue("chat/default_model", self.model_input.currentText().strip())
+
+        for placeholder, input_field in self.prompt_field_inputs.items():
+            value = self._read_prompt_field_value(input_field)
+            self.settings.setValue(f"prompt_sidebar/field/{placeholder}", value)
+
+        if self.company_context_checkbox is not None:
+            self.settings.setValue(
+                "prompt_sidebar/company_context_enabled",
+                bool(self.company_context_checkbox.isChecked()),
+            )
+
+    def _create_prompt_input_widget(self, display_label: str, options: list[str]) -> QWidget:
+        combo = QComboBox()
+        combo.setEditable(True)
+        combo.setObjectName("promptFieldInput")
+        combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        combo.setMaxVisibleItems(8)
+        combo.addItems(options)
+        
+        # Cấu hình View để chặn cuộn ngang tuyệt đối
+        view = combo.view()
+        view.setTextElideMode(Qt.TextElideMode.ElideRight) # Tự động rút gọn text bằng dấu ...
+        view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff) # Tắt vĩnh viễn thanh cuộn ngang
+        
+        # Đồng bộ chiều rộng bảng chọn với chiều rộng của ô nhập (size sidebar)
+        # Giúp bảng chọn không bị phình to hơn ô nhập.
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        
+        # Style ép chiều rộng và ngăn tràn chữ
+        combo.setStyleSheet("""
+            QComboBox {
+                max-width: 370px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #ffffff;
+                border: 1px solid #d1d5db;
+                selection-background-color: #e5edff;
+                selection-color: #1e3a8a;
+                outline: 0px;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 8px 10px;
+                border-bottom: 1px solid #f3f4f6;
+            }
+        """)
+        
+        # Mặc định chọn cái đầu tiên nếu có
+        if options:
+            combo.setCurrentIndex(0)
+        else:
+            combo.setCurrentIndex(-1)
+            combo.setEditText("")
+
+        line_edit = combo.lineEdit()
+        if line_edit is not None:
+            line_edit.setPlaceholderText(f"Chọn hoặc nhập {display_label}...")
+            line_edit.installEventFilter(self.wheel_event_filter)
+        
+        completer = combo.completer()
+        if completer is not None:
+            completer.setFilterMode(Qt.MatchFlag.MatchContains)
+            completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        return combo
+
+    def _load_prompt_template_text(self) -> str:
+        instructions_dir = get_instructions_dir()
+        template_file = self._find_instruction_file_by_prefix(
+            instructions_dir,
+            self._TEMPLATE_INSTRUCTION_PREFIXES,
+            recursive=True,
         )
+        if template_file is not None:
+            content = self._read_instruction_markdown_text(template_file)
+            if content:
+                return content
+
+        for file_path in self._collect_instruction_markdown_files(instructions_dir, recursive=True):
+            content = self._read_instruction_markdown_text(file_path)
+            if content and "{{" in content and "}}" in content:
+                return content
+
+        return ""
+
+    def _load_default_instruction_profile_text(self) -> str:
+        instructions_dir = get_instructions_dir()
+        base_text = self._load_instruction_file_text(
+            instructions_dir,
+            self._BASE_INSTRUCTION_PREFIXES,
+        )
+        overlay_text = self._load_instruction_file_text(
+            instructions_dir,
+            self._DEFAULT_OVERLAY_PREFIXES,
+        )
+
+        parts = [part for part in (base_text, overlay_text) if part]
+        return "\n\n".join(parts).strip()
+
+    def _load_instruction_file_text(self, directory: Path, candidate_prefixes: tuple[str, ...]) -> str:
+        file_path = self._find_instruction_file_by_prefix(directory, candidate_prefixes, recursive=True)
+        if file_path is None:
+            return ""
+        return self._read_instruction_markdown_text(file_path)
+
+    def _collect_instruction_markdown_files(self, directory: Path, recursive: bool = True) -> list[Path]:
+        if not directory.exists() or not directory.is_dir():
+            return []
+
+        if recursive:
+            files = [path for path in directory.rglob("*.md") if path.is_file()]
+        else:
+            files = [path for path in directory.glob("*.md") if path.is_file()]
+
+        return sorted(files, key=lambda path: str(path.relative_to(directory)).lower())
+
+    def _find_instruction_file_by_prefix(
+        self,
+        directory: Path,
+        prefixes: tuple[str, ...],
+        recursive: bool = True,
+    ) -> Path | None:
+        normalized_prefixes = tuple(prefix.lower() for prefix in prefixes)
+
+        for file_path in self._collect_instruction_markdown_files(directory, recursive=recursive):
+            stem_lower = file_path.stem.lower()
+            if any(stem_lower.startswith(prefix) for prefix in normalized_prefixes):
+                return file_path
+
+        return None
+
+    def _read_instruction_markdown_text(self, file_path: Path) -> str:
+        try:
+            return file_path.read_text(encoding="utf-8").strip()
+        except Exception:
+            return ""
+
+    def _extract_unique_placeholders(self, template_text: str) -> list[str]:
+        placeholders = re.findall(r"{{(.*?)}}", template_text)
+        seen: set[str] = set()
+        result: list[str] = []
+        for item in placeholders:
+            item = item.strip()
+            if not item or item in seen:
+                continue
+            seen.add(item)
+            result.append(item)
+        return result
+
+    def _build_prompt_instructions(self) -> str | None:
+        if not self.prompt_template_text:
+            fallback = self.default_instructions_text.strip()
+            return fallback or None
+
+        result = self.prompt_template_text
+        for placeholder in self._HIDDEN_PROMPT_KEYS:
+            result = result.replace(f"{{{{{placeholder}}}}}", "")
+
+        has_filled_value = False
+
+        for placeholder, input_field in self.prompt_field_inputs.items():
+            value = self._read_prompt_field_value(input_field)
+            if value:
+                has_filled_value = True
+
+                if (
+                    placeholder == self._PROMPT_COMPANY_KEY
+                    and self.company_context_checkbox is not None
+                    and self.company_context_checkbox.isChecked()
+                ):
+                    company_context = self._resolve_company_context(value)
+                    if company_context:
+                        value = f"{value}\n\nThông tin công ty tham chiếu:\n{company_context}"
+
+                if placeholder == self._PROMPT_WORK_KEY:
+                    # Nếu người dùng chọn từ danh sách, lấy nội dung file md đầy đủ
+                    value = self.work_prompt_map.get(value, value)
+
+                result = result.replace(f"{{{{{placeholder}}}}}", value)
+
+        if has_filled_value:
+            return result.strip()
+        fallback = self.default_instructions_text.strip()
+        return fallback or None
+
+    def _read_prompt_field_value(self, input_field: QWidget) -> str:
+        if isinstance(input_field, QLineEdit):
+            return input_field.text().strip()
+        if isinstance(input_field, QComboBox):
+            return input_field.currentText().strip()
+        if isinstance(input_field, QTextEdit):
+            return input_field.toPlainText().strip()
+        return ""
+
+    def _resolve_company_context(self, company_name: str) -> str | None:
+        if not company_name:
+            return None
+
+        direct_context = self.company_context_by_name.get(company_name)
+        if direct_context:
+            return direct_context
+
+        return self.company_context_lookup.get(company_name.casefold())
+
+    def _load_prompt_bundle_data(self) -> tuple[dict[str, list[str]], dict[str, str], dict[str, str], dict[str, str]]:
+        sheets_dir = get_sheets_dir()
+        
+        # Load options from Cleaned_ .txt files if they exist, otherwise fallback to CSV
+        company_txt = sheets_dir / "Cleaned_List_CongTy.txt"
+        role_txt = sheets_dir / "Cleaned_List_VaiTro.txt"
+
+        if company_txt.exists():
+            company_options = [line.strip() for line in company_txt.read_text(encoding="utf-8").splitlines() if line.strip()]
+        else:
+            company_rows = self._read_csv_rows(sheets_dir / "List_CongTy.csv")
+            company_options, _ = self._extract_company_options(company_rows)
+
+        if role_txt.exists():
+            role_options = [line.strip() for line in role_txt.read_text(encoding="utf-8").splitlines() if line.strip()]
+        else:
+            role_rows = self._read_csv_rows(sheets_dir / "List_VaiTro.csv")
+            role_options = self._extract_role_options(role_rows)
+        
+        # We still need company_context for reference info even if using txt for dropdown names
+        company_rows_all = self._read_csv_rows(sheets_dir / "List_CongTy.csv")
+        _, company_context = self._extract_company_options(company_rows_all)
+
+        # Load work options from markdown files in resources/instructions
+        instructions_dir = get_instructions_dir()
+        work_map = self._scan_work_instruction_files(instructions_dir)
+        work_options = sorted(work_map.keys())
+
+        company_lookup = {name.casefold(): info for name, info in company_context.items()}
+        options = {
+            self._PROMPT_COMPANY_KEY: company_options,
+            self._PROMPT_ROLE_KEY: role_options,
+            self._PROMPT_WORK_KEY: work_options,
+        }
+        return options, company_context, company_lookup, work_map
+
+    def _scan_work_instruction_files(self, base_dir: Path) -> dict[str, str]:
+        work_map = {}
+        normalized_prefixes = {prefix.rstrip("_-") for prefix in self._WORK_INSTRUCTION_PREFIXES}
+        prefix_pattern = re.compile(r"^(\d+)[_\-].+")
+
+        for file_path in self._collect_instruction_markdown_files(base_dir, recursive=True):
+            match = prefix_pattern.match(file_path.stem)
+            if not match:
+                continue
+
+            group_prefix = match.group(1)
+            if group_prefix not in normalized_prefixes:
+                continue
+
+            display_name = re.sub(r"[_\-]+", " ", file_path.stem).strip()
+            display_key = f"[{group_prefix}] {display_name}"
+            if display_key in work_map:
+                relative_name = str(file_path.relative_to(base_dir)).replace("\\", "/")
+                display_key = f"[{group_prefix}] {relative_name}"
+
+            content = self._read_instruction_markdown_text(file_path)
+            if content:
+                work_map[display_key] = content
+
+        return work_map
+
+
+    def _read_csv_rows(self, csv_path: Path) -> list[dict[str, str]]:
+        if not csv_path.exists() or not csv_path.is_file():
+            return []
+
+        for encoding in ("utf-8-sig", "utf-8"):
+            try:
+                with csv_path.open("r", encoding=encoding, newline="") as file:
+                    reader = csv.DictReader(file)
+                    rows: list[dict[str, str]] = []
+                    for row in reader:
+                        if not isinstance(row, dict):
+                            continue
+
+                        cleaned_row: dict[str, str] = {}
+                        for key, value in row.items():
+                            if key is None:
+                                continue
+                            normalized_key = str(key).strip()
+                            cleaned_row[normalized_key] = value if isinstance(value, str) else ""
+                        rows.append(cleaned_row)
+                    return rows
+            except Exception:
+                continue
+
+        return []
+
+    def _extract_company_options(self, rows: object) -> tuple[list[str], dict[str, str]]:
+        if not isinstance(rows, list):
+            return [], {}
+
+        options: list[str] = []
+        contexts: dict[str, str] = {}
+        seen: set[str] = set()
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+
+            company_name = self._clean_text(
+                row.get("TÊN CÔNG TY") or row.get("col_3") or row.get("Name")
+            )
+            if not self._is_valid_option(company_name, max_len=140):
+                continue
+
+            if company_name not in seen:
+                seen.add(company_name)
+                options.append(company_name)
+
+            if company_name in contexts:
+                continue
+
+            context_text = self._clean_company_context(
+                row.get("THÔNG TIN CÔNG TY") or row.get("col_6") or row.get("col_4")
+            )
+            if context_text:
+                contexts[company_name] = context_text
+
+        return options, contexts
+
+    def _extract_role_options(self, rows: object) -> list[str]:
+        if not isinstance(rows, list):
+            return []
+
+        options: list[str] = []
+        seen: set[str] = set()
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+
+            raw_text = row.get("VAI TRÒ, VỊ TRÍ CÔNG VIỆC (Ô B1 input)") or row.get("col_3")
+            role_text = self._clean_text(raw_text)
+
+            if not self._is_valid_option(role_text, max_len=120):
+                continue
+
+            if role_text.isupper() and len(role_text) > 20:
+                continue
+
+            if role_text not in seen:
+                seen.add(role_text)
+                options.append(role_text)
+
+        return options
+
+    def _clean_text(self, value: object) -> str:
+        if not isinstance(value, str):
+            return ""
+
+        text = value.replace("\xa0", " ").strip()
+        text = re.sub(r"\s+", " ", text)
+        return text.strip()
+
+    def _clean_company_context(self, value: object) -> str:
+        if not isinstance(value, str):
+            return ""
+
+        text = value.replace("```", "").strip()
+        if text.startswith("---"):
+            text = text[3:].lstrip()
+
+        marker = "Bạn có thể khai thác thêm thông tin về"
+        if marker in text and "\n" in text:
+            _, text = text.split("\n", 1)
+
+        text = text.strip()
+        if len(text) < 40:
+            return ""
+        if len(text) > 3200:
+            text = f"{text[:3200].rstrip()}..."
+
+        return text
+
+    def _is_valid_option(self, text: str, max_len: int = 180) -> bool:
+        if not text:
+            return False
+        if len(text) < 2 or len(text) > max_len:
+            return False
+        if text.startswith("```") or text.startswith("---"):
+            return False
+        if "Bạn có thể khai thác thêm thông tin về" in text:
+            return False
+
+        char_set = set(text)
+        if char_set and char_set.issubset({"_", "-", ".", ",", ":", ";", " ", "|"}):
+            return False
+
+        return True
 
     def _load_conversations(self) -> None:
         selected_id = self.state.current_conversation_id
@@ -521,9 +1347,9 @@ class MainWindow(QMainWindow):
 
         request = ChatRequest(
             conversation_id=conversation_id,
-            instructions=self.instructions_input.text().strip() or None,
+            instructions=self._build_prompt_instructions(),
             input=prompt,
-            model=self.model_input.currentText().strip() or "gemini-2.0-flash-exp",
+            model=self.model_input.currentText().strip() or "gemini-3.0-flash-overview",
             file_paths=list(self.state.attached_paths),
         )
 
@@ -533,18 +1359,15 @@ class MainWindow(QMainWindow):
 
         self.input_box.clear()
         self.send_button.setEnabled(False)
+        self.send_button.setText("Đang gửi...")
+        self._set_response_status("Trạng thái phản hồi: Đang tạo phản hồi...", "processing")
         self.statusBar().showMessage("Đang tạo phản hồi...")
 
         self.stream_worker = ChatStreamWorker(self.client, request)
-        self.stream_worker.chunk_received.connect(self._on_chunk_received)
         self.stream_worker.success.connect(self._on_stream_success)
         self.stream_worker.failed.connect(self._on_stream_failed)
         self.stream_worker.finished.connect(self._on_stream_finished)
         self.stream_worker.start()
-
-    def _on_chunk_received(self, chunk: str) -> None:
-        self.state.append_or_create_assistant_chunk(chunk)
-        self._render_messages()
 
     def _on_stream_success(self, result: StreamResult) -> None:
         if self.state.messages and self.state.messages[-1].role == "assistant":
@@ -556,6 +1379,8 @@ class MainWindow(QMainWindow):
         self._render_messages()
 
         self._load_conversations()
+        finished_at = datetime.now().strftime("%H:%M:%S")
+        self._set_response_status(f"Trạng thái phản hồi: Đã hoàn tất lúc {finished_at}", "done")
         if self.state.attached_paths:
             self.statusBar().showMessage(
                 f"Hoàn tất ({result.status}) • giữ lại {len(self.state.attached_paths)} tệp đính kèm",
@@ -568,10 +1393,19 @@ class MainWindow(QMainWindow):
         if self.state.messages and self.state.messages[-1].role == "assistant" and not self.state.messages[-1].text:
             self.state.messages.pop()
         self._render_messages()
+        self._set_response_status("Trạng thái phản hồi: Có lỗi khi tạo phản hồi", "error")
         self._show_error(error_message)
 
     def _on_stream_finished(self) -> None:
         self.send_button.setEnabled(True)
+        self.send_button.setText("Gửi")
+
+    def _set_response_status(self, text: str, state: str) -> None:
+        self.response_status_label.setText(text)
+        self.response_status_label.setProperty("state", state)
+        self.response_status_label.style().unpolish(self.response_status_label)
+        self.response_status_label.style().polish(self.response_status_label)
+        self.response_status_label.update()
 
     def _attach_files(self) -> None:
         file_paths, _ = QFileDialog.getOpenFileNames(self, "Chọn tệp")
@@ -581,6 +1415,7 @@ class MainWindow(QMainWindow):
         for path in file_paths:
             if path not in known:
                 self.state.attached_paths.append(path)
+                known.add(path)
         self._update_attachment_label()
 
     def _clear_attachments(self) -> None:
@@ -588,17 +1423,19 @@ class MainWindow(QMainWindow):
         self._update_attachment_label()
 
     def _update_attachment_label(self) -> None:
+        self.attachment_list.clear()
+        self.clear_file_button.setEnabled(bool(self.state.attached_paths))
         if not self.state.attached_paths:
-            self.attachment_label.setText("Chưa có tệp đính kèm")
-            self.attachment_label.setToolTip("")
+            placeholder_item = QListWidgetItem("Chưa có tệp đính kèm")
+            placeholder_item.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.attachment_list.addItem(placeholder_item)
+            self.attachment_list.setToolTip("")
             return
-        count = len(self.state.attached_paths)
-        short_names = [path.split("/")[-1].split("\\")[-1] for path in self.state.attached_paths]
-        display = ", ".join(short_names[:2])
-        if count > 2:
-            display += f" +{count - 2} tệp nữa"
-        self.attachment_label.setText(display)
-        self.attachment_label.setToolTip("\n".join(self.state.attached_paths))
+        for file_path in self.state.attached_paths:
+            item = QListWidgetItem(Path(file_path).name)
+            item.setToolTip(file_path)
+            self.attachment_list.addItem(item)
+        self.attachment_list.setToolTip("\n".join(self.state.attached_paths))
 
     def _render_messages(self) -> None:
         blocks: list[str] = [
@@ -755,11 +1592,9 @@ class MainWindow(QMainWindow):
 
         try:
             from docx import Document
-            from htmldocx import HtmlToDocx
-            import markdown
         except Exception:
             self._show_error(
-                "Thiếu thư viện xuất Word. Hãy cài `python-docx`, `markdown`, `htmldocx` rồi thử lại."
+                "Thiếu thư viện xuất Word. Hãy cài `python-docx` rồi thử lại."
             )
             return
 
@@ -792,17 +1627,19 @@ class MainWindow(QMainWindow):
             )
             return
 
-        html_content = markdown.markdown(
-            markdown_text,
-            extensions=["fenced_code", "tables", "sane_lists", "nl2br"],
-        )
-
         document = Document()
-        html_parser = HtmlToDocx()
-        html_parser.add_html_to_document(html_content, document)
+        self._apply_word_document_style(document)
+        heading = document.add_heading(title, level=1)
+        if heading.runs:
+            heading.runs[0].bold = True
 
-        if not document.paragraphs and not document.tables:
-            document.add_paragraph(markdown_text)
+        exported_at = datetime.now().strftime("%d/%m/%Y %H:%M")
+        meta = document.add_paragraph(f"Xuất lúc: {exported_at}")
+        if meta.runs:
+            meta.runs[0].italic = True
+
+        document.add_paragraph("")
+        self._append_markdown_to_word_document(document, markdown_text)
 
         try:
             document.save(str(output_path))
@@ -811,6 +1648,294 @@ class MainWindow(QMainWindow):
             return
 
         self.statusBar().showMessage(f"Đã xuất 1 phản hồi Trợ lý: {output_path.name}", 4000)
+
+    def _apply_word_document_style(self, document) -> None:
+        from docx.enum.text import WD_LINE_SPACING
+        from docx.shared import Cm, Pt
+
+        for section in document.sections:
+            section.top_margin = Cm(2.3)
+            section.bottom_margin = Cm(2.0)
+            section.left_margin = Cm(2.2)
+            section.right_margin = Cm(2.2)
+
+        normal_style = document.styles["Normal"]
+        normal_style.font.name = "Times New Roman"
+        normal_style.font.size = Pt(11)
+        normal_paragraph = normal_style.paragraph_format
+        normal_paragraph.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
+        normal_paragraph.line_spacing = 1.25
+        normal_paragraph.space_after = Pt(6)
+
+        if "Heading 1" in document.styles:
+            heading_1 = document.styles["Heading 1"]
+            heading_1.font.name = "Times New Roman"
+            heading_1.font.size = Pt(16)
+            heading_1.font.bold = True
+
+        if "Heading 2" in document.styles:
+            heading_2 = document.styles["Heading 2"]
+            heading_2.font.name = "Times New Roman"
+            heading_2.font.size = Pt(14)
+            heading_2.font.bold = True
+
+    def _normalize_export_markdown_text(self, text: str) -> str:
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        normalized = normalized.replace("\u00a0", " ").replace("\u200b", "")
+
+        normalized = re.sub(r"\t+", " ", normalized)
+        normalized = re.sub(r"(?<!\d)([;:!?])(?!\s)(?=\S)", r"\1 ", normalized)
+        normalized = re.sub(r"(?<!\d)([.,])(?!\d)(?!\s)(?=\S)", r"\1 ", normalized)
+        normalized = re.sub(r"([\]})])([A-Za-zÀ-Ỵà-ỵ0-9])", r"\1 \2", normalized)
+        normalized = re.sub(r"([A-Za-zÀ-Ỵà-ỵ0-9])([\[({])", r"\1 \2", normalized)
+        normalized = re.sub(r"[ ]{2,}", " ", normalized)
+
+        lines = [line.strip() for line in normalized.split("\n")]
+        compact: list[str] = []
+        previous_blank = False
+        for line in lines:
+            if not line:
+                if not previous_blank:
+                    compact.append("")
+                previous_blank = True
+                continue
+            compact.append(line)
+            previous_blank = False
+        return "\n".join(compact).strip()
+
+    def _split_long_text_for_word(self, text: str) -> list[str]:
+        if len(text) < 450:
+            return [text]
+
+        parts = re.split(r"(?<=[.!?])\s+(?=[A-ZÀ-Ỵ0-9])", text)
+        cleaned = [part.strip() for part in parts if part.strip()]
+        if len(cleaned) <= 1:
+            return [text]
+        return cleaned
+
+    def _is_markdown_table_separator(self, line: str) -> bool:
+        return bool(re.match(r"^\|?\s*:?[-]{3,}:?(\s*\|\s*:?[-]{3,}:?)*\s*\|?$", line))
+
+    def _append_markdown_table_to_document(self, document, lines: list[str]) -> None:
+        cleaned_lines = [line.strip() for line in lines if line.strip()]
+        if len(cleaned_lines) < 2:
+            return
+
+        header_line = cleaned_lines[0]
+        separator_line = cleaned_lines[1]
+        if not self._is_markdown_table_separator(separator_line):
+            return
+
+        data_lines = cleaned_lines[2:]
+        header_cells = [cell.strip() for cell in header_line.strip("|").split("|")]
+        if not header_cells:
+            return
+
+        table = document.add_table(rows=1, cols=len(header_cells))
+        table.style = "Table Grid"
+
+        for index, value in enumerate(header_cells):
+            header_paragraph = table.rows[0].cells[index].paragraphs[0]
+            self._add_markdown_runs_to_paragraph(header_paragraph, value)
+            for run in header_paragraph.runs:
+                run.bold = True
+
+        for line in data_lines:
+            row_values = [cell.strip() for cell in line.strip("|").split("|")]
+            row = table.add_row()
+            for index in range(len(header_cells)):
+                paragraph = row.cells[index].paragraphs[0]
+                value = row_values[index] if index < len(row_values) else ""
+                self._add_markdown_runs_to_paragraph(paragraph, value)
+
+        document.add_paragraph("")
+
+    def _flush_word_paragraph_lines(self, document, paragraph_lines: list[str]) -> None:
+        from docx.shared import Pt
+
+        if not paragraph_lines:
+            return
+
+        merged_text = re.sub(r"\s+", " ", " ".join(paragraph_lines)).strip()
+        paragraph_lines.clear()
+        if not merged_text:
+            return
+
+        for chunk in self._split_long_text_for_word(merged_text):
+            paragraph = document.add_paragraph()
+            paragraph.paragraph_format.space_after = Pt(6)
+            self._add_markdown_runs_to_paragraph(paragraph, chunk)
+
+    def _flush_word_table_lines(self, document, table_lines: list[str]) -> None:
+        if not table_lines:
+            return
+
+        self._append_markdown_table_to_document(document, list(table_lines))
+        table_lines.clear()
+
+    def _append_word_code_block(self, document, code_lines: list[str]) -> None:
+        from docx.shared import Pt
+
+        if not code_lines:
+            return
+
+        paragraph = document.add_paragraph("\n".join(code_lines))
+        for run in paragraph.runs:
+            run.font.name = "Consolas"
+            run.font.size = Pt(10)
+        paragraph.paragraph_format.left_indent = Pt(12)
+        paragraph.paragraph_format.space_after = Pt(6)
+        code_lines.clear()
+
+    def _append_word_heading_line(self, document, stripped: str) -> bool:
+        heading_match = re.match(r"^(#{1,6})\s+(.*)$", stripped)
+        if not heading_match:
+            return False
+
+        level = min(len(heading_match.group(1)), 4)
+        heading_text = heading_match.group(2).strip()
+        document.add_heading(heading_text, level=level)
+        return True
+
+    def _append_word_bullet_line(self, document, stripped: str) -> bool:
+        from docx.shared import Pt
+
+        bullet_match = re.match(r"^[-*+]\s+(.+)$", stripped)
+        if not bullet_match:
+            return False
+
+        content = bullet_match.group(1).strip()
+        try:
+            paragraph = document.add_paragraph(style="List Bullet")
+        except Exception:
+            paragraph = document.add_paragraph("• ")
+        self._add_markdown_runs_to_paragraph(paragraph, content)
+        paragraph.paragraph_format.space_after = Pt(4)
+        return True
+
+    def _append_word_numbered_line(self, document, stripped: str) -> bool:
+        from docx.shared import Pt
+
+        numbered_match = re.match(r"^(\d+)[\.)]\s+(.+)$", stripped)
+        if not numbered_match:
+            return False
+
+        content = numbered_match.group(2).strip()
+        try:
+            paragraph = document.add_paragraph(style="List Number")
+        except Exception:
+            paragraph = document.add_paragraph(f"{numbered_match.group(1)}. ")
+        self._add_markdown_runs_to_paragraph(paragraph, content)
+        paragraph.paragraph_format.space_after = Pt(4)
+        return True
+
+    def _append_word_quote_line(self, document, stripped: str) -> bool:
+        from docx.shared import Pt
+
+        quote_match = re.match(r"^>\s?(.*)$", stripped)
+        if not quote_match:
+            return False
+
+        paragraph = document.add_paragraph()
+        paragraph.paragraph_format.left_indent = Pt(14)
+        paragraph.paragraph_format.space_after = Pt(6)
+        self._add_markdown_runs_to_paragraph(paragraph, quote_match.group(1).strip())
+        return True
+
+    def _append_markdown_to_word_document(self, document, text: str) -> None:
+        normalized_text = self._normalize_export_markdown_text(text)
+        in_code_block = False
+        code_lines: list[str] = []
+        paragraph_lines: list[str] = []
+        table_lines: list[str] = []
+
+        for raw_line in normalized_text.splitlines():
+            line = raw_line.rstrip()
+            stripped = line.strip()
+
+            if stripped.startswith("```"):
+                self._flush_word_paragraph_lines(document, paragraph_lines)
+                self._flush_word_table_lines(document, table_lines)
+                if in_code_block:
+                    self._append_word_code_block(document, code_lines)
+                    in_code_block = False
+                else:
+                    in_code_block = True
+                continue
+
+            if in_code_block:
+                code_lines.append(line)
+                continue
+
+            if not stripped:
+                self._flush_word_paragraph_lines(document, paragraph_lines)
+                self._flush_word_table_lines(document, table_lines)
+                document.add_paragraph("")
+                continue
+
+            if "|" in stripped:
+                self._flush_word_paragraph_lines(document, paragraph_lines)
+                table_lines.append(stripped)
+                continue
+
+            if table_lines:
+                self._flush_word_table_lines(document, table_lines)
+
+            if self._append_word_heading_line(document, stripped):
+                continue
+
+            if self._append_word_bullet_line(document, stripped):
+                continue
+
+            if self._append_word_numbered_line(document, stripped):
+                continue
+
+            if self._append_word_quote_line(document, stripped):
+                continue
+
+            paragraph_lines.append(stripped)
+
+        self._flush_word_paragraph_lines(document, paragraph_lines)
+        self._flush_word_table_lines(document, table_lines)
+
+        if in_code_block and code_lines:
+            self._append_word_code_block(document, code_lines)
+
+    def _add_markdown_runs_to_paragraph(self, paragraph, text: str) -> None:
+        normalized_text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", text)
+        normalized_text = normalized_text.replace("\\*", "*").replace("\\_", "_")
+        token_pattern = re.compile(r"(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\*[^*]+\*|_[^_]+_)")
+
+        for token in token_pattern.split(normalized_text):
+            if not token:
+                continue
+
+            if token.startswith("**") and token.endswith("**") and len(token) >= 4:
+                run = paragraph.add_run(token[2:-2])
+                run.bold = True
+                continue
+
+            if token.startswith("__") and token.endswith("__") and len(token) >= 4:
+                run = paragraph.add_run(token[2:-2])
+                run.bold = True
+                continue
+
+            if token.startswith("`") and token.endswith("`") and len(token) >= 2:
+                run = paragraph.add_run(token[1:-1])
+                run.font.name = "Consolas"
+                continue
+
+            if token.startswith("*") and token.endswith("*") and len(token) >= 2:
+                run = paragraph.add_run(token[1:-1])
+                run.italic = True
+                continue
+
+            if token.startswith("_") and token.endswith("_") and len(token) >= 2:
+                run = paragraph.add_run(token[1:-1])
+                run.italic = True
+                continue
+
+            paragraph.add_run(token)
 
     def _export_assistant_message_to_pdf(self, assistant_message: ChatMessage) -> None:
         if assistant_message.role.lower() != "assistant" or not assistant_message.text.strip():

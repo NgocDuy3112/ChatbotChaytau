@@ -40,10 +40,10 @@ async def chat_generate_stream(
         try:
             async for chunk in generate_chat_response_stream(request, client, session):
                 # Ensure each chunk is yielded as an SSE data packet
-                yield f"data: {chunk}\n\n"
+                yield f"data:{chunk}\n\n"
         except Exception as e:
             import traceback
             traceback.print_exc()
-            yield f"data: Error: {str(e)}\n\n"
+            yield f"data:Error: {str(e)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

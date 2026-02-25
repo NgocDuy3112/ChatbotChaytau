@@ -1,6 +1,9 @@
 import pathlib
 import hashlib
 import re
+import shutil
+import tempfile
+import unicodedata
 import zipfile
 import xml.etree.ElementTree as ET
 from typing import Any
@@ -30,11 +33,28 @@ def upload_file_to_gemini(client: Client, file_path: str) -> Any:
         raise FileNotFoundError(f"File not found: {file_path}")
     
     mime_type = get_mime_type(path)
+    upload_path = path
+    temp_dir: pathlib.Path | None = None
+
+    if _path_has_non_ascii(path):
+        try:
+            temp_dir = pathlib.Path(tempfile.mkdtemp(prefix="gemini_upload_"))
+            safe_name = _ascii_safe_filename(path.stem, path.suffix)
+            upload_path = temp_dir / safe_name
+            shutil.copy2(path, upload_path)
+        except Exception as exc:
+            global_logger.warning(
+                f"Could not create ASCII-safe temp copy for {path.name}, fallback to original path: {exc}"
+            )
+            upload_path = path
+            if temp_dir:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                temp_dir = None
     
     try:
         # Upload the file to the File API
         uploaded_file = client.files.upload(
-            file=path,
+            file=upload_path,
             config={"mime_type": mime_type}
         )
         global_logger.info(f"File uploaded to Gemini: {uploaded_file.uri}")
@@ -43,6 +63,26 @@ def upload_file_to_gemini(client: Client, file_path: str) -> Any:
     except Exception as e:
         global_logger.error(f"Failed to upload file {file_path} to Gemini: {e}")
         raise
+    finally:
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _path_has_non_ascii(path: pathlib.Path) -> bool:
+    try:
+        str(path).encode("ascii")
+        return False
+    except UnicodeEncodeError:
+        return True
+
+
+def _ascii_safe_filename(stem: str, suffix: str) -> str:
+    normalized = unicodedata.normalize("NFKD", stem)
+    ascii_stem = normalized.encode("ascii", "ignore").decode("ascii")
+    ascii_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", ascii_stem).strip("._-")
+    if not ascii_stem:
+        ascii_stem = "file"
+    return f"{ascii_stem}{suffix}"
 
 
 def extract_docx_text(file_path: pathlib.Path) -> str:

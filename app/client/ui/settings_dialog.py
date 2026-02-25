@@ -8,7 +8,6 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
-    QLineEdit,
     QTextEdit,
     QVBoxLayout,
 )
@@ -32,15 +31,12 @@ class SettingsDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Cài đặt")
-        self.resize(520, 340)
+        self.resize(500, 300)
+        self._base_url = current_values.base_url
 
         layout = QVBoxLayout(self)
         form = QFormLayout()
         form.setSpacing(10)
-
-        self.base_url_input = QLineEdit(current_values.base_url)
-        self.base_url_input.setPlaceholderText("Ví dụ: http://localhost:8000")
-        form.addRow("Backend URL", self.base_url_input)
 
         self.timeout_input = QDoubleSpinBox()
         self.timeout_input.setRange(5.0, 300.0)
@@ -75,7 +71,7 @@ class SettingsDialog(QDialog):
 
     def values(self) -> AppSettingsValues:
         return AppSettingsValues(
-            base_url=self.base_url_input.text().strip(),
+            base_url=self._base_url,
             timeout=float(self.timeout_input.value()),
             default_model=self.model_input.currentText().strip(),
             default_instructions=self.instructions_input.toPlainText().strip(),

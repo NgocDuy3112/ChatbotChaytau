@@ -50,7 +50,12 @@ class ChatApiClient:
         return Conversation.from_dict(payload)
 
     def generate(self, request: ChatRequest) -> ChatResponse:
-        payload = self._request_json("POST", "/chat/generate", json=request.to_payload())
+        payload = self._request_json(
+            "POST",
+            "/chat/generate",
+            json=request.to_payload(),
+            use_default_timeout=False,
+        )
         if not isinstance(payload, dict):
             raise ApiError("Phản hồi tạo câu trả lời không hợp lệ")
         return ChatResponse.from_dict(payload)
@@ -69,10 +74,14 @@ class ChatApiClient:
                     for line in response.iter_lines():
                         if not line:
                             continue
-                        text = line.strip()
+                        text = line.rstrip("\r\n")
                         if not text.startswith("data:"):
                             continue
-                        chunk = text[5:].lstrip()
+                        chunk = text[5:]
+                        if chunk.startswith(" "):
+                            chunk = chunk[1:]
+                        if chunk.startswith("Error:"):
+                            raise ApiError(chunk)
                         if chunk:
                             yield chunk
         except httpx.HTTPError as exc:
@@ -83,10 +92,12 @@ class ChatApiClient:
         method: str,
         path: str,
         json: dict[str, Any] | None = None,
+        use_default_timeout: bool = True,
     ) -> Any:
         url = self._url(path)
+        timeout = self.timeout if use_default_timeout else None
         try:
-            with httpx.Client(timeout=self.timeout) as client:
+            with httpx.Client(timeout=timeout) as client:
                 response = client.request(method=method, url=url, json=json)
                 self._raise_for_status(response)
                 return response.json()
