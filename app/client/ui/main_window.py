@@ -91,7 +91,6 @@ class MainWindow(QMainWindow):
             "gemini-2.5-flash",
             "gemini-2.5-pro",
             "gemini-3-flash-preview",
-            "gemini-3-pro-preview",
             "gemini-3.1-pro-preview",
         ]
         self.prompt_template_text = ""
@@ -445,7 +444,7 @@ class MainWindow(QMainWindow):
             }
 
             QComboBox QAbstractItemView {
-                min-width: 750px;
+                min-width: 375px;
             }
 
             /* Đảm bảo QComboBox có mũi tên rõ ràng */
