@@ -153,7 +153,12 @@ async def generate_chat_response(request: ChatRequest, client: genai.Client, ses
     if request.file_paths:
         file_hashes = _attach_files_to_contents(client, contents, request.file_paths)
 
-    config = types.GenerateContentConfig(system_instruction=request.instructions) if request.instructions else None
+    tools = [types.Tool(google_search=types.GoogleSearch())] if request.search_grounding else None
+    config = types.GenerateContentConfig(
+        system_instruction=request.instructions,
+        cached_content=None,  # Disable context caching at API level
+        tools=tools,
+    )
 
     try:
         response = client.models.generate_content(model=request.model, contents=contents, config=config)
@@ -231,7 +236,12 @@ async def generate_chat_response_stream(request: ChatRequest, client: genai.Clie
     if request.file_paths:
         file_hashes = _attach_files_to_contents(client, contents, request.file_paths)
 
-    config = types.GenerateContentConfig(system_instruction=request.instructions) if request.instructions else None
+    tools = [types.Tool(google_search_retrieval=types.GoogleSearchRetrieval())] if request.search_grounding else None
+    config = types.GenerateContentConfig(
+        system_instruction=request.instructions,
+        cached_content=None,  # Disable context caching at API level
+        tools=tools,
+    )
 
     full_text = ""
     try:

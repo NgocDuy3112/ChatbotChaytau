@@ -7,8 +7,8 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import QEvent, QObject, QSettings, Qt, QUrl
-from PyQt6.QtGui import QTextDocument
+from PyQt6.QtCore import QEvent, QObject, QSettings, Qt, QTimer, QUrl
+from PyQt6.QtGui import QDesktopServices, QTextDocument
 from PyQt6.QtPrintSupport import QPrinter
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -37,7 +37,6 @@ from ..api.client import ApiError, ChatApiClient
 from ..models.dto import BaseMessage, ChatRequest, Conversation
 from ..state.store import ChatMessage, ChatState
 from ..workers.stream_worker import ChatStreamWorker, StreamResult
-from .settings_dialog import AppSettingsValues, SettingsDialog
 from ..utils.resources import get_instructions_dir, get_sheets_dir
 
 
@@ -100,6 +99,14 @@ class MainWindow(QMainWindow):
         self.company_context_by_name: dict[str, str] = {}
         self.company_context_lookup: dict[str, str] = {}
         self.company_context_checkbox: QCheckBox | None = None
+        self.search_grounding_checkbox: QCheckBox | None = None
+        self.auto_open_export_checkbox: QCheckBox | None = None
+        self.response_spinner_label: QLabel | None = None
+        self._spinner_frames = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+        self._spinner_index = 0
+        self._spinner_timer = QTimer(self)
+        self._spinner_timer.setInterval(90)
+        self._spinner_timer.timeout.connect(self._advance_response_spinner)
         self._restoring_right_panel_settings = False
         self.default_instruction_profile_text = self._load_default_instruction_profile_text()
         self.default_instructions_text = self.default_instruction_profile_text
@@ -129,16 +136,6 @@ class MainWindow(QMainWindow):
         title_label.setObjectName("appTitle")
         top_bar.addWidget(title_label)
         top_bar.addStretch(1)
-
-        refresh_btn = QPushButton("Làm mới")
-        refresh_btn.setObjectName("refreshButton")
-        refresh_btn.clicked.connect(self._load_conversations)
-        top_bar.addWidget(refresh_btn)
-
-        settings_btn = QPushButton("Cài đặt")
-        settings_btn.setObjectName("secondaryButton")
-        settings_btn.clicked.connect(self._open_settings_dialog)
-        top_bar.addWidget(settings_btn)
         root_layout.addLayout(top_bar)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -185,6 +182,16 @@ class MainWindow(QMainWindow):
         controls_row.addWidget(model_label)
         controls_row.addWidget(self.model_input)
 
+        self.search_grounding_checkbox = QCheckBox("Tìm kiếm bằng Google")
+        self.search_grounding_checkbox.setChecked(True)
+        self.search_grounding_checkbox.toggled.connect(self._on_right_panel_setting_changed)
+        controls_row.addWidget(self.search_grounding_checkbox)
+
+        self.auto_open_export_checkbox = QCheckBox("Tự mở file sau khi xuất")
+        self.auto_open_export_checkbox.setChecked(True)
+        self.auto_open_export_checkbox.toggled.connect(self._on_right_panel_setting_changed)
+        controls_row.addWidget(self.auto_open_export_checkbox)
+
         controls_row.addStretch(1)
         right_layout.addLayout(controls_row)
 
@@ -209,12 +216,12 @@ class MainWindow(QMainWindow):
         file_buttons_col = QVBoxLayout()
         file_buttons_col.setSpacing(8)
 
-        self.add_file_button = QPushButton("Thêm tệp")
+        self.add_file_button = QPushButton("Thêm file")
         self.add_file_button.setObjectName("addFileButton")
         self.add_file_button.clicked.connect(self._attach_files)
         file_buttons_col.addWidget(self.add_file_button)
 
-        self.clear_file_button = QPushButton("Xóa tệp")
+        self.clear_file_button = QPushButton("Xóa file")
         self.clear_file_button.setObjectName("clearFileButton")
         self.clear_file_button.clicked.connect(self._clear_attachments)
         file_buttons_col.addWidget(self.clear_file_button)
@@ -253,10 +260,20 @@ class MainWindow(QMainWindow):
 
         chat_layout.addLayout(input_row)
 
+        status_row = QHBoxLayout()
+        status_row.setSpacing(6)
+
+        self.response_spinner_label = QLabel("⠋")
+        self.response_spinner_label.setObjectName("responseSpinnerLabel")
+        self.response_spinner_label.setVisible(False)
+        status_row.addWidget(self.response_spinner_label)
+
         self.response_status_label = QLabel("Trạng thái phản hồi: Sẵn sàng")
         self.response_status_label.setObjectName("responseStatusLabel")
         self.response_status_label.setProperty("state", "idle")
-        chat_layout.addWidget(self.response_status_label)
+        status_row.addWidget(self.response_status_label)
+        status_row.addStretch(1)
+        chat_layout.addLayout(status_row)
 
         self._update_attachment_label()
         right_splitter.addWidget(chat_container)
@@ -522,6 +539,13 @@ class MainWindow(QMainWindow):
             #responseStatusLabel[state="error"] {
                 color: #dc2626;
             }
+
+            #responseSpinnerLabel {
+                color: #2563eb;
+                font-size: 13px;
+                font-weight: 700;
+                min-width: 12px;
+            }
             """
         )
 
@@ -533,74 +557,28 @@ class MainWindow(QMainWindow):
         self._set_response_status("Trạng thái phản hồi: Sẵn sàng", "idle")
         self.statusBar().showMessage("Đã tạo cuộc trò chuyện mới", 3000)
 
-    def _open_settings_dialog(self) -> None:
-        dialog = SettingsDialog(
-            current_values=self._current_settings_values(),
-            available_models=list(self.available_models),
-            parent=self,
-        )
-        if dialog.exec() != dialog.DialogCode.Accepted:
-            return
-
-        values = dialog.values()
-        self._apply_settings_values(values)
-        self._persist_settings(values)
-
-        self.statusBar().showMessage("Đã lưu cài đặt", 3000)
-
-    def _current_settings_values(self) -> AppSettingsValues:
-        return AppSettingsValues(
-            base_url=self.client.base_url,
-            timeout=float(self.client.timeout),
-            default_model=self.model_input.currentText().strip(),
-            default_instructions=self.default_instructions_text,
-        )
-
-    def _apply_settings_values(self, values: AppSettingsValues) -> None:
-        self.client.set_base_url(values.base_url)
-        self.client.timeout = float(values.timeout)
-
-        if values.default_model and self.model_input.findText(values.default_model) < 0:
-            self.model_input.addItem(values.default_model)
-        if values.default_model:
-            self.model_input.setCurrentText(values.default_model)
-
-        self.default_instructions_text = values.default_instructions
-
-    def _persist_settings(self, values: AppSettingsValues) -> None:
-        self.settings.setValue("client/base_url", values.base_url)
-        self.settings.setValue("client/timeout", float(values.timeout))
-        self.settings.setValue("chat/default_model", values.default_model)
-        self.settings.setValue("chat/default_instructions", values.default_instructions)
-        self.settings.sync()
-
     def _load_settings(self) -> None:
         self._restoring_right_panel_settings = True
         try:
-            base_url_raw = self.settings.value("client/base_url", self.client.base_url)
-            timeout_raw = self.settings.value("client/timeout", self.client.timeout)
             model_raw = self.settings.value("chat/default_model", self.model_input.currentText())
             instructions_raw = self.settings.value("chat/default_instructions", "")
-
-            base_url = str(base_url_raw or "").strip() or self.client.base_url
-            try:
-                timeout_value = float(timeout_raw)
-            except (TypeError, ValueError):
-                timeout_value = float(self.client.timeout)
+            search_grounding_raw = self.settings.value("chat/search_grounding_enabled", True)
+            auto_open_exports_raw = self.settings.value("export/auto_open_exported_files", True)
 
             model = str(model_raw or "").strip() or self.model_input.currentText().strip()
-            instructions = str(instructions_raw or "").strip()
-            if not instructions:
-                instructions = self.default_instruction_profile_text
+            if model and self.model_input.findText(model) < 0:
+                self.model_input.addItem(model)
+            if model:
+                self.model_input.setCurrentText(model)
 
-            self._apply_settings_values(
-                AppSettingsValues(
-                    base_url=base_url,
-                    timeout=timeout_value,
-                    default_model=model,
-                    default_instructions=instructions,
-                )
-            )
+            instructions = str(instructions_raw or "").strip()
+            self.default_instructions_text = instructions or self.default_instruction_profile_text
+
+            if self.search_grounding_checkbox is not None:
+                self.search_grounding_checkbox.setChecked(self._coerce_setting_bool(search_grounding_raw))
+
+            if self.auto_open_export_checkbox is not None:
+                self.auto_open_export_checkbox.setChecked(self._coerce_setting_bool(auto_open_exports_raw))
         finally:
             self._restoring_right_panel_settings = False
 
@@ -676,7 +654,7 @@ class MainWindow(QMainWindow):
             "giong_van": {
                 "label": "Giọng văn",
                 "type": "combo",
-                "options": ["Chuyên nghiệp", "Thân thiện", "Thuyết phục", "Phân tích", "Hài hước", "Lịch sự"],
+                "options": ["Chuyên nghiệp", "Thân thiện",  "Phân tích", "Lịch sự"],
             },
             "chuyen_mon": {
                 "label": "Mức độ chuyên môn",
@@ -686,7 +664,7 @@ class MainWindow(QMainWindow):
             "dinh_dang": {
                 "label": "Định dạng kết quả",
                 "type": "combo",
-                "options": ["Markdown", "Email", "Báo cáo", "Bảng biểu", "Danh sách", "Đoạn văn tự do"],
+                "options": ["Markdown", "Email", "Báo cáo", "Bảng biểu", "Danh sách"],
             },
             "trinh_bay": {
                 "label": "Yêu cầu trình bày",
@@ -695,7 +673,6 @@ class MainWindow(QMainWindow):
                     "Có tiêu đề rõ ràng, dùng bullet point",
                     "Trình bày dạng bảng so sánh",
                     "Phân tích từng bước chi tiết",
-                    "Sử dụng ví dụ minh họa",
                 ],
             },
             "gioi_han": {
@@ -812,6 +789,18 @@ class MainWindow(QMainWindow):
             return
 
         self.settings.setValue("chat/default_model", self.model_input.currentText().strip())
+
+        if self.search_grounding_checkbox is not None:
+            self.settings.setValue(
+                "chat/search_grounding_enabled",
+                bool(self.search_grounding_checkbox.isChecked()),
+            )
+
+        if self.auto_open_export_checkbox is not None:
+            self.settings.setValue(
+                "export/auto_open_exported_files",
+                bool(self.auto_open_export_checkbox.isChecked()),
+            )
 
         for placeholder, input_field in self.prompt_field_inputs.items():
             value = self._read_prompt_field_value(input_field)
@@ -1354,6 +1343,7 @@ class MainWindow(QMainWindow):
             input=prompt,
             model=self.model_input.currentText().strip() or "gemini-3.0-flash-overview",
             file_paths=list(self.state.attached_paths),
+            search_grounding=self.search_grounding_checkbox.isChecked() if self.search_grounding_checkbox is not None else True,
         )
 
         self.state.add_message(role="user", text=prompt)
@@ -1361,8 +1351,7 @@ class MainWindow(QMainWindow):
         self._render_messages()
 
         self.input_box.clear()
-        self.send_button.setEnabled(False)
-        self.send_button.setText("Đang gửi...")
+        self._set_busy_state(True)
         self._set_response_status("Trạng thái phản hồi: Đang tạo phản hồi...", "processing")
         self.statusBar().showMessage("Đang tạo phản hồi...")
 
@@ -1400,8 +1389,7 @@ class MainWindow(QMainWindow):
         self._show_error(error_message)
 
     def _on_stream_finished(self) -> None:
-        self.send_button.setEnabled(True)
-        self.send_button.setText("Gửi")
+        self._set_busy_state(False)
 
     def _set_response_status(self, text: str, state: str) -> None:
         self.response_status_label.setText(text)
@@ -1409,6 +1397,41 @@ class MainWindow(QMainWindow):
         self.response_status_label.style().unpolish(self.response_status_label)
         self.response_status_label.style().polish(self.response_status_label)
         self.response_status_label.update()
+
+    def _set_busy_state(self, is_busy: bool) -> None:
+        self.input_box.setEnabled(not is_busy)
+        self.send_button.setEnabled(not is_busy)
+        self.send_button.setText("Đang gửi..." if is_busy else "Gửi")
+
+        if is_busy:
+            self.input_box.setPlaceholderText("Đang tạo phản hồi...")
+            self._start_response_spinner()
+            return
+
+        self.input_box.setPlaceholderText("Nhập tin nhắn...")
+        self._stop_response_spinner()
+
+    def _start_response_spinner(self) -> None:
+        if self.response_spinner_label is None:
+            return
+
+        self._spinner_index = 0
+        self.response_spinner_label.setText(self._spinner_frames[self._spinner_index])
+        self.response_spinner_label.setVisible(True)
+        if not self._spinner_timer.isActive():
+            self._spinner_timer.start()
+
+    def _stop_response_spinner(self) -> None:
+        self._spinner_timer.stop()
+        if self.response_spinner_label is not None:
+            self.response_spinner_label.setVisible(False)
+
+    def _advance_response_spinner(self) -> None:
+        if self.response_spinner_label is None or not self.response_spinner_label.isVisible():
+            return
+
+        self._spinner_index = (self._spinner_index + 1) % len(self._spinner_frames)
+        self.response_spinner_label.setText(self._spinner_frames[self._spinner_index])
 
     def _attach_files(self) -> None:
         file_paths, _ = QFileDialog.getOpenFileNames(self, "Chọn tệp")
@@ -1427,7 +1450,21 @@ class MainWindow(QMainWindow):
 
     def _update_attachment_label(self) -> None:
         self.attachment_list.clear()
-        self.clear_file_button.setEnabled(bool(self.state.attached_paths))
+        has_attachments = bool(self.state.attached_paths)
+        self.clear_file_button.setEnabled(has_attachments)
+
+        if self.search_grounding_checkbox is not None:
+            if has_attachments:
+                if self.search_grounding_checkbox.isChecked():
+                    self.search_grounding_checkbox.setChecked(False)
+                self.search_grounding_checkbox.setEnabled(False)
+                self.search_grounding_checkbox.setToolTip("Đã tắt khi có file đính kèm")
+            else:
+                self.search_grounding_checkbox.setEnabled(True)
+                if not self.search_grounding_checkbox.isChecked():
+                    self.search_grounding_checkbox.setChecked(True)
+                self.search_grounding_checkbox.setToolTip("")
+
         if not self.state.attached_paths:
             placeholder_item = QListWidgetItem("Chưa có tệp đính kèm")
             placeholder_item.setFlags(Qt.ItemFlag.NoItemFlags)
@@ -1632,16 +1669,6 @@ class MainWindow(QMainWindow):
 
         document = Document()
         self._apply_word_document_style(document)
-        heading = document.add_heading(title, level=1)
-        if heading.runs:
-            heading.runs[0].bold = True
-
-        exported_at = datetime.now().strftime("%d/%m/%Y %H:%M")
-        meta = document.add_paragraph(f"Xuất lúc: {exported_at}")
-        if meta.runs:
-            meta.runs[0].italic = True
-
-        document.add_paragraph("")
         self._append_markdown_to_word_document(document, markdown_text)
 
         try:
@@ -1651,6 +1678,8 @@ class MainWindow(QMainWindow):
             return
 
         self.statusBar().showMessage(f"Đã xuất 1 phản hồi Trợ lý: {output_path.name}", 4000)
+        if self.auto_open_export_checkbox is None or self.auto_open_export_checkbox.isChecked():
+            self._open_exported_file(output_path)
 
     def _apply_word_document_style(self, document) -> None:
         from docx.enum.text import WD_LINE_SPACING
@@ -1984,6 +2013,17 @@ class MainWindow(QMainWindow):
             return
 
         self.statusBar().showMessage(f"Đã xuất 1 phản hồi Trợ lý: {output_path.name}", 4000)
+        if self.auto_open_export_checkbox is None or self.auto_open_export_checkbox.isChecked():
+            self._open_exported_file(output_path)
+
+    def _open_exported_file(self, output_path: Path) -> None:
+        file_url = QUrl.fromLocalFile(str(output_path))
+        opened = QDesktopServices.openUrl(file_url)
+        if not opened:
+            self.statusBar().showMessage(
+                f"Đã lưu file nhưng không thể mở tự động: {output_path.name}",
+                5000,
+            )
 
     def _current_conversation_title(self) -> str | None:
         current_item = self.conversation_list.currentItem()

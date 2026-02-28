@@ -58,6 +58,7 @@ class ChatRequest:
     conversation_id: str | None = None
     instructions: str | None = None
     file_paths: list[str] = field(default_factory=list)
+    search_grounding: bool = True
 
     def to_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -66,6 +67,7 @@ class ChatRequest:
             "input": self.input,
             "model": self.model,
             "file_paths": self.file_paths,
+            "search_grounding": self.search_grounding,
         }
         return payload
 

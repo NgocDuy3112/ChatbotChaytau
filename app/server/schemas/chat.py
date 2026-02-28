@@ -14,6 +14,7 @@ class ChatRequest(BaseModel):
         default_factory=list, 
         description="List of file paths to be used as context for the conversation"
     )
+    search_grounding: bool = Field(True, description="Enable Google Search grounding")
 
 
 
