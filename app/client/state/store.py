@@ -8,6 +8,7 @@ from datetime import datetime
 class ChatMessage:
     role: str
     text: str
+    attachment_names: list[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
 
 
@@ -25,8 +26,14 @@ class ChatState:
     def set_messages(self, messages: list[ChatMessage]) -> None:
         self.messages = list(messages)
 
-    def add_message(self, role: str, text: str) -> None:
-        self.messages.append(ChatMessage(role=role, text=text))
+    def add_message(self, role: str, text: str, attachment_names: list[str] | None = None) -> None:
+        self.messages.append(
+            ChatMessage(
+                role=role,
+                text=text,
+                attachment_names=list(attachment_names or []),
+            )
+        )
 
     def append_or_create_assistant_chunk(self, chunk: str) -> None:
         if self.messages and self.messages[-1].role == "assistant":

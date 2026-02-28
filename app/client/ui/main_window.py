@@ -7,8 +7,8 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import QEvent, QObject, QSettings, Qt, QTimer, QUrl
-from PyQt6.QtGui import QDesktopServices, QTextDocument
+from PyQt6.QtCore import QEvent, QObject, QSize, QSettings, Qt, QTimer, QUrl
+from PyQt6.QtGui import QColor, QDesktopServices, QIcon, QPainter, QTextDocument
 from PyQt6.QtPrintSupport import QPrinter
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -67,6 +67,9 @@ class MainWindow(QMainWindow):
     _WINDOW_SIZE = (1500, 800)
     _MAIN_SPLITTER_SIZES = [240, 960]
     _RIGHT_SPLITTER_SIZES = [520, 300]
+    _INPUT_MIN_HEIGHT = 42
+    _INPUT_MAX_HEIGHT = 128
+    _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
     _PROMPT_COMPANY_KEY = "ten_cong_ty"
     _PROMPT_ROLE_KEY = "vai_tro"
     _PROMPT_WORK_KEY = "noi_dung_chi_tiet"
@@ -102,6 +105,8 @@ class MainWindow(QMainWindow):
         self.search_grounding_checkbox: QCheckBox | None = None
         self.auto_open_export_checkbox: QCheckBox | None = None
         self.response_spinner_label: QLabel | None = None
+        self._response_status_text = "Trạng thái phản hồi: Sẵn sàng"
+        self._response_status_state = "idle"
         self._spinner_frames = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
         self._spinner_index = 0
         self._spinner_timer = QTimer(self)
@@ -209,56 +214,94 @@ class MainWindow(QMainWindow):
         self.chat_view.anchorClicked.connect(self._on_chat_link_clicked)
         chat_layout.addWidget(self.chat_view, 1)
 
+        self.add_file_button = QPushButton()
+        self.add_file_button.setObjectName("addFileButton")
+        self.add_file_button.setFixedSize(42, 42)
+        self.add_file_button.clicked.connect(self._attach_files)
+        self._configure_icon_button(
+            self.add_file_button,
+            ("mail-attachment", "attachment"),
+            "📎",
+            "Thêm file",
+            icon_size=18,
+        )
+
+        self.add_image_button = QPushButton()
+        self.add_image_button.setObjectName("addImageButton")
+        self.add_image_button.setFixedSize(42, 42)
+        self.add_image_button.clicked.connect(self._attach_images)
+        self._configure_icon_button(
+            self.add_image_button,
+            ("image-x-generic", "insert-image"),
+            "🖼",
+            "Thêm ảnh",
+            icon_size=18,
+        )
+
+        self.clear_file_button = QPushButton()
+        self.clear_file_button.setObjectName("clearFileButton")
+        self.clear_file_button.setFixedSize(42, 42)
+        self.clear_file_button.clicked.connect(self._clear_attachments)
+        self._configure_icon_button(
+            self.clear_file_button,
+            ("user-trash", "edit-delete"),
+            "🗑",
+            "Xóa file",
+            icon_size=18,
+        )
+
+        self.send_button = QPushButton()
+        self.send_button.setObjectName("sendButton")
+        self.send_button.setFixedSize(42, 42)
+        self.send_button.clicked.connect(self._send_message)
+        self._configure_icon_button(
+            self.send_button,
+            ("mail-send", "document-send"),
+            "➤",
+            "Gửi",
+            icon_size=18,
+        )
+
         attachments_row = QHBoxLayout()
         attachments_row.setSpacing(8)
 
-        # Stack the file action buttons in a vertical column to save horizontal space
-        file_buttons_col = QVBoxLayout()
-        file_buttons_col.setSpacing(8)
-
-        self.add_file_button = QPushButton("Thêm file")
-        self.add_file_button.setObjectName("addFileButton")
-        self.add_file_button.clicked.connect(self._attach_files)
-        file_buttons_col.addWidget(self.add_file_button)
-
-        self.clear_file_button = QPushButton("Xóa file")
-        self.clear_file_button.setObjectName("clearFileButton")
-        self.clear_file_button.clicked.connect(self._clear_attachments)
-        file_buttons_col.addWidget(self.clear_file_button)
-
-        file_buttons_col.addStretch(1)
-
-        self.attachment_list = QListWidget()
+        self.attachment_list = QTextBrowser()
         self.attachment_list.setObjectName("attachmentList")
-        self.attachment_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
-        self.attachment_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.attachment_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.attachment_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.attachment_list.setTextElideMode(Qt.TextElideMode.ElideMiddle)
+        self.attachment_list.setOpenLinks(False)
+        self.attachment_list.setOpenExternalLinks(False)
         self.attachment_list.setMinimumHeight(112)
         self.attachment_list.setMaximumHeight(112)
 
-        attachments_row.addLayout(file_buttons_col)
         attachments_row.addWidget(self.attachment_list, 1)
         chat_layout.addLayout(attachments_row)
 
-        input_row = QHBoxLayout()
-        input_row.setSpacing(8)
+        input_panel = QWidget()
+        input_panel.setObjectName("inputComposer")
+        input_panel_layout = QVBoxLayout(input_panel)
+        input_panel_layout.setContentsMargins(10, 8, 10, 8)
+        input_panel_layout.setSpacing(6)
 
         self.input_box = QTextEdit()
         self.input_box.setObjectName("inputBox")
         self.input_box.setPlaceholderText("Nhập tin nhắn...")
-        self.input_box.setFixedHeight(60)
+        self.input_box.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.input_box.installEventFilter(self)
-        input_row.addWidget(self.input_box, 1)
+        self.input_box.textChanged.connect(self._adjust_input_box_height)
+        input_panel_layout.addWidget(self.input_box)
 
-        self.send_button = QPushButton("Gửi")
-        self.send_button.setObjectName("sendButton")
-        self.send_button.setFixedSize(74, 60)
-        self.send_button.clicked.connect(self._send_message)
-        input_row.addWidget(self.send_button)
+        actions_row = QHBoxLayout()
+        actions_row.setContentsMargins(0, 0, 0, 0)
+        actions_row.setSpacing(8)
+        actions_row.addWidget(self.add_file_button)
+        actions_row.addWidget(self.add_image_button)
+        actions_row.addWidget(self.clear_file_button)
+        actions_row.addStretch(1)
+        actions_row.addWidget(self.send_button)
+        input_panel_layout.addLayout(actions_row)
 
-        chat_layout.addLayout(input_row)
+        chat_layout.addWidget(input_panel)
+
+        self._adjust_input_box_height()
 
         status_row = QHBoxLayout()
         status_row.setSpacing(6)
@@ -373,14 +416,14 @@ class MainWindow(QMainWindow):
                 background: #f3f4f6;
             }
 
-            #newChatButton, #sendButton {
+            #newChatButton {
                 background: #2563eb;
                 color: white;
                 border: 1px solid #2563eb;
                 font-weight: 600;
             }
 
-            #newChatButton:hover, #sendButton:hover {
+            #newChatButton:hover {
                 background: #1d4ed8;
             }
 
@@ -389,23 +432,71 @@ class MainWindow(QMainWindow):
                 color: #ffffff;
                 border: 1px solid #2563eb;
                 font-weight: 600;
-                padding: 6px 10px;
+                padding: 0;
             }
 
             #addFileButton:hover {
                 background: #1d4ed8;
             }
 
-            #clearFileButton {
-                background: #ffffff;
-                color: #4b5563;
-                border: 1px solid #d1d5db;
+            #addFileButton:disabled {
+                background: #93c5fd;
+                border: 1px solid #93c5fd;
+                color: rgba(255, 255, 255, 0.55);
+            }
+
+            #addImageButton {
+                background: #7c3aed;
+                color: #ffffff;
+                border: 1px solid #7c3aed;
                 font-weight: 600;
-                padding: 6px 10px;
+                padding: 0;
+            }
+
+            #addImageButton:hover {
+                background: #6d28d9;
+            }
+
+            #addImageButton:disabled {
+                background: #c4b5fd;
+                border: 1px solid #c4b5fd;
+                color: rgba(255, 255, 255, 0.55);
+            }
+
+            #clearFileButton {
+                background: #dc2626;
+                color: #ffffff;
+                border: 1px solid #dc2626;
+                font-weight: 600;
+                padding: 0;
             }
 
             #clearFileButton:hover {
-                background: #f3f4f6;
+                background: #b91c1c;
+            }
+
+            #clearFileButton:disabled {
+                background: #fca5a5;
+                border: 1px solid #fca5a5;
+                color: rgba(255, 255, 255, 0.55);
+            }
+
+            #sendButton {
+                background: #16a34a;
+                color: #ffffff;
+                border: 1px solid #16a34a;
+                font-weight: 600;
+                padding: 0;
+            }
+
+            #sendButton:hover {
+                background: #15803d;
+            }
+
+            #sendButton:disabled {
+                background: #86efac;
+                border: 1px solid #86efac;
+                color: rgba(255, 255, 255, 0.55);
             }
 
             #conversationList {
@@ -432,11 +523,23 @@ class MainWindow(QMainWindow):
                 padding: 8px;
             }
 
-            #inputBox, #instructionsInput, #modelInput {
+            #instructionsInput, #modelInput {
                 border: 1px solid #d1d5db;
                 border-radius: 8px;
                 background: #ffffff;
                 padding: 6px;
+            }
+
+            #inputComposer {
+                border: 1px solid #d1d5db;
+                border-radius: 14px;
+                background: #ffffff;
+            }
+
+            #inputBox {
+                border: 0;
+                background: transparent;
+                padding: 2px 2px 0 2px;
             }
 
             #promptSidebar {
@@ -1339,14 +1442,16 @@ class MainWindow(QMainWindow):
 
         request = ChatRequest(
             conversation_id=conversation_id,
-            instructions=self._build_prompt_instructions(),
+            instructions=self._resolve_request_instructions(),
             input=prompt,
             model=self.model_input.currentText().strip() or "gemini-3.0-flash-overview",
             file_paths=list(self.state.attached_paths),
             search_grounding=self.search_grounding_checkbox.isChecked() if self.search_grounding_checkbox is not None else True,
         )
 
-        self.state.add_message(role="user", text=prompt)
+        attachment_names = [Path(path).name for path in self.state.attached_paths]
+
+        self.state.add_message(role="user", text=prompt, attachment_names=attachment_names)
         self.state.add_message(role="assistant", text="")
         self._render_messages()
 
@@ -1392,22 +1497,72 @@ class MainWindow(QMainWindow):
         self._set_busy_state(False)
 
     def _set_response_status(self, text: str, state: str) -> None:
+        self._response_status_text = text
+        self._response_status_state = state
         self.response_status_label.setText(text)
         self.response_status_label.setProperty("state", state)
         self.response_status_label.style().unpolish(self.response_status_label)
         self.response_status_label.style().polish(self.response_status_label)
         self.response_status_label.update()
 
+    def _adjust_input_box_height(self) -> None:
+        document_height = int(self.input_box.document().size().height())
+        target_height = max(self._INPUT_MIN_HEIGHT, min(document_height + 14, self._INPUT_MAX_HEIGHT))
+        self.input_box.setFixedHeight(target_height)
+
+        needs_scroll = document_height + 14 > self._INPUT_MAX_HEIGHT
+        self.input_box.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            if needs_scroll
+            else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+
+    def _configure_icon_button(
+        self,
+        button: QPushButton,
+        theme_icon_names: tuple[str, ...],
+        fallback_symbol: str,
+        tooltip: str,
+        icon_size: int = 18,
+    ) -> None:
+        resolved_icon = QIcon()
+        for icon_name in theme_icon_names:
+            candidate_icon = QIcon.fromTheme(icon_name)
+            if not candidate_icon.isNull():
+                resolved_icon = candidate_icon
+                break
+
+        if resolved_icon.isNull():
+            button.setText(fallback_symbol)
+        else:
+            source_pixmap = resolved_icon.pixmap(icon_size, icon_size)
+            if not source_pixmap.isNull():
+                tinted_pixmap = source_pixmap.copy()
+                painter = QPainter(tinted_pixmap)
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+                painter.fillRect(tinted_pixmap.rect(), QColor("#ffffff"))
+                painter.end()
+                resolved_icon = QIcon(tinted_pixmap)
+            button.setIcon(resolved_icon)
+            button.setText("")
+
+        button.setIconSize(QSize(icon_size, icon_size))
+        button.setToolTip(tooltip)
+
     def _set_busy_state(self, is_busy: bool) -> None:
         self.input_box.setEnabled(not is_busy)
         self.send_button.setEnabled(not is_busy)
-        self.send_button.setText("Đang gửi..." if is_busy else "Gửi")
+        self.add_file_button.setEnabled(not is_busy)
+        self.add_image_button.setEnabled(not is_busy)
 
         if is_busy:
+            self.clear_file_button.setEnabled(False)
+
             self.input_box.setPlaceholderText("Đang tạo phản hồi...")
             self._start_response_spinner()
             return
 
+        self._update_attachment_label()
         self.input_box.setPlaceholderText("Nhập tin nhắn...")
         self._stop_response_spinner()
 
@@ -1434,9 +1589,38 @@ class MainWindow(QMainWindow):
         self.response_spinner_label.setText(self._spinner_frames[self._spinner_index])
 
     def _attach_files(self) -> None:
-        file_paths, _ = QFileDialog.getOpenFileNames(self, "Chọn tệp")
+        default_dir = Path.home() / "Desktop"
+        if not default_dir.exists():
+            default_dir = Path.home()
+
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Chọn tệp",
+            str(default_dir),
+        )
         if not file_paths:
             return
+        known = set(self.state.attached_paths)
+        for path in file_paths:
+            if path not in known:
+                self.state.attached_paths.append(path)
+                known.add(path)
+        self._update_attachment_label()
+
+    def _attach_images(self) -> None:
+        default_dir = Path.home() / "Desktop"
+        if not default_dir.exists():
+            default_dir = Path.home()
+
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Chọn ảnh",
+            str(default_dir),
+            "Image Files (*.png *.jpg *.jpeg *.webp *.bmp *.gif *.tif *.tiff)",
+        )
+        if not file_paths:
+            return
+
         known = set(self.state.attached_paths)
         for path in file_paths:
             if path not in known:
@@ -1449,16 +1633,26 @@ class MainWindow(QMainWindow):
         self._update_attachment_label()
 
     def _update_attachment_label(self) -> None:
-        self.attachment_list.clear()
+        card_blocks: list[str] = [
+            "<html><body style='margin:0; padding:0; font-family:Segoe UI, Arial, sans-serif; font-size:12px;'>"
+        ]
         has_attachments = bool(self.state.attached_paths)
         self.clear_file_button.setEnabled(has_attachments)
 
         if self.search_grounding_checkbox is not None:
             if has_attachments:
-                if self.search_grounding_checkbox.isChecked():
-                    self.search_grounding_checkbox.setChecked(False)
-                self.search_grounding_checkbox.setEnabled(False)
-                self.search_grounding_checkbox.setToolTip("Đã tắt khi có file đính kèm")
+                has_non_image_file = any(
+                    not self._is_image_attachment_path(file_path)
+                    for file_path in self.state.attached_paths
+                )
+                if has_non_image_file:
+                    if self.search_grounding_checkbox.isChecked():
+                        self.search_grounding_checkbox.setChecked(False)
+                    self.search_grounding_checkbox.setEnabled(False)
+                    self.search_grounding_checkbox.setToolTip("Đã tắt khi có file không phải ảnh")
+                else:
+                    self.search_grounding_checkbox.setEnabled(True)
+                    self.search_grounding_checkbox.setToolTip("")
             else:
                 self.search_grounding_checkbox.setEnabled(True)
                 if not self.search_grounding_checkbox.isChecked():
@@ -1466,16 +1660,73 @@ class MainWindow(QMainWindow):
                 self.search_grounding_checkbox.setToolTip("")
 
         if not self.state.attached_paths:
-            placeholder_item = QListWidgetItem("Chưa có tệp đính kèm")
-            placeholder_item.setFlags(Qt.ItemFlag.NoItemFlags)
-            self.attachment_list.addItem(placeholder_item)
+            card_blocks.append(
+                "<div style='margin:8px; color:#6b7280;'>Chưa có tệp đính kèm</div>"
+            )
+            card_blocks.append("</body></html>")
+            self.attachment_list.setHtml("".join(card_blocks))
             self.attachment_list.setToolTip("")
             return
+
         for file_path in self.state.attached_paths:
-            item = QListWidgetItem(Path(file_path).name)
-            item.setToolTip(file_path)
-            self.attachment_list.addItem(item)
+            file_name = Path(file_path).name
+            chip_html = self._build_attachment_chip_html(file_name)
+            card_blocks.append(
+                "<div style='margin:6px; padding:6px 8px; border:1px solid #e5e7eb; border-radius:8px; background:#ffffff;'>"
+                f"{chip_html}"
+                f"<div style='margin-top:2px; color:#6b7280; font-size:11px;'>{html.escape(file_name)}</div>"
+                "</div>"
+            )
+
+        card_blocks.append("</body></html>")
+        self.attachment_list.setHtml("".join(card_blocks))
         self.attachment_list.setToolTip("\n".join(self.state.attached_paths))
+
+    def _is_image_attachment_path(self, file_path: str) -> bool:
+        return Path(file_path).suffix.lower() in self._IMAGE_EXTENSIONS
+
+    def _resolve_request_instructions(self) -> str | None:
+        has_image_file = any(
+            self._is_image_attachment_path(file_path)
+            for file_path in self.state.attached_paths
+        )
+        if has_image_file:
+            return None
+
+        has_non_image_file = any(
+            not self._is_image_attachment_path(file_path)
+            for file_path in self.state.attached_paths
+        )
+        if not has_non_image_file:
+            return None
+
+        return self._build_prompt_instructions()
+
+    def _attachment_chip_colors(self, file_name: str) -> tuple[str, str, str]:
+        extension = Path(file_name).suffix.lower()
+
+        if extension in self._IMAGE_EXTENSIONS:
+            return "#bfdbfe", "#eff6ff", "#1e3a8a"
+        if extension == ".pdf":
+            return "#fecaca", "#fef2f2", "#991b1b"
+        if extension in {".doc", ".docx"}:
+            return "#c7d2fe", "#eef2ff", "#3730a3"
+        if extension in {".xls", ".xlsx", ".csv"}:
+            return "#bbf7d0", "#f0fdf4", "#166534"
+        if extension in {".txt", ".md", ".json", ".xml", ".yaml", ".yml"}:
+            return "#d1d5db", "#f9fafb", "#374151"
+        return "#d1d5db", "#f3f4f6", "#374151"
+
+    def _build_attachment_chip_html(self, file_name: str) -> str:
+        border_color, background_color, text_color = self._attachment_chip_colors(file_name)
+        return (
+            "<span style='display:inline-block; margin:0 6px 6px 0; padding:3px 8px; "
+            "border-radius:999px; "
+            f"border:1px solid {border_color}; background:{background_color}; color:{text_color}; "
+            "font-size:12px;'>"
+            f"{html.escape(file_name)}"
+            "</span>"
+        )
 
     def _render_messages(self) -> None:
         blocks: list[str] = [
@@ -1489,6 +1740,21 @@ class MainWindow(QMainWindow):
             role = message.role.lower()
             title = "Bạn" if role == "user" else "Trợ lý"
             text = self._render_markdown_html(message.text)
+            attachments_html = ""
+
+            if role == "user" and message.attachment_names:
+                filename_items = "".join(
+                    self._build_attachment_chip_html(file_name)
+                    for file_name in message.attachment_names
+                )
+                attachments_html = (
+                    "<div style='margin-top:8px; padding:6px 8px; border-radius:8px; "
+                    "background:#ffffff; border:1px solid #cfe0ff;'>"
+                    "<div style='font-size:12px; font-weight:600; color:#1e3a8a; margin-bottom:4px;'>"
+                    "Tệp đính kèm:</div>"
+                    f"<div style='margin:0; color:#1f2937;'>{filename_items}</div>"
+                    "</div>"
+                )
 
             timestamp = ""
             if isinstance(message.created_at, datetime):
@@ -1506,6 +1772,7 @@ class MainWindow(QMainWindow):
                 title_color = "#374151"
 
             actions_html = ""
+            assistant_status_html = ""
             if role == "assistant" and message.text.strip():
                 actions_html = (
                     "<table cellspacing='0' cellpadding='0' style='margin-top:8px;'>"
@@ -1523,6 +1790,27 @@ class MainWindow(QMainWindow):
                     "</table>"
                 )
 
+            if role == "assistant":
+                state_label_map = {
+                    "processing": "Đang phản hồi...",
+                    "done": "Đã phản hồi",
+                    "error": "Phản hồi lỗi",
+                    "idle": "Sẵn sàng",
+                }
+                status_label = state_label_map.get(self._response_status_state, self._response_status_text)
+                status_color_map = {
+                    "processing": "#2563eb",
+                    "done": "#059669",
+                    "error": "#dc2626",
+                    "idle": "#6b7280",
+                }
+                status_color = status_color_map.get(self._response_status_state, "#6b7280")
+                assistant_status_html = (
+                    f"<div style='margin-top:6px; font-size:11px; font-weight:600; color:{status_color};'>"
+                    f"Trạng thái: {status_label}"
+                    "</div>"
+                )
+
             bubble = (
                 "<table width='100%' cellspacing='0' cellpadding='0' style='margin:0 0 10px 0;'>"
                 f"<tr><td align='{align}'>"
@@ -1531,6 +1819,8 @@ class MainWindow(QMainWindow):
                 "<tr><td style='padding:8px 10px 6px 10px;'>"
                 f"<div style='font-weight:700; color:{title_color}; margin-bottom:4px;'>{title}</div>"
                 f"<div style='line-height:1.42; color:#111827;'>{text}</div>"
+                f"{attachments_html}"
+                f"{assistant_status_html}"
                 f"{actions_html}"
                 f"<div style='font-size:11px; color:#6b7280; margin-top:6px;'>{timestamp}</div>"
                 "</td></tr></table>"
@@ -1640,7 +1930,7 @@ class MainWindow(QMainWindow):
 
         title = self._current_conversation_title() or "Cuộc trò chuyện"
         default_stem = self._safe_filename(f"{title}_tro_ly_{datetime.now().strftime('%Y%m%d_%H%M')}")
-        default_dir = Path.home() / "Documents"
+        default_dir = Path.home() / "Desktop"
         if not default_dir.exists():
             default_dir = Path.home()
         default_path = default_dir / f"{default_stem}.docx"
@@ -1980,7 +2270,7 @@ class MainWindow(QMainWindow):
 
         title = self._current_conversation_title() or "Cuộc trò chuyện"
         default_stem = self._safe_filename(f"{title}_tro_ly_{datetime.now().strftime('%Y%m%d_%H%M')}")
-        default_dir = Path.home() / "Documents"
+        default_dir = Path.home() / "Desktop"
         if not default_dir.exists():
             default_dir = Path.home()
         default_path = default_dir / f"{default_stem}.pdf"
