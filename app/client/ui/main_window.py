@@ -37,7 +37,7 @@ from ..api.client import ApiError, ChatApiClient
 from ..models.dto import BaseMessage, ChatRequest, Conversation
 from ..state.store import ChatMessage, ChatState
 from ..workers.stream_worker import ChatStreamWorker, StreamResult
-from ..utils.resources import get_instructions_dir, get_sheets_dir
+from ..utils.resources import get_icons_dir, get_instructions_dir, get_sheets_dir
 
 
 class WheelEventFilter(QObject):
@@ -88,13 +88,7 @@ class MainWindow(QMainWindow):
         self.state = ChatState()
         self.stream_worker: ChatStreamWorker | None = None
         self.settings = QSettings("ChatbotChaytau", "ChatbotDesktop")
-        self.available_models = [
-            "gemini-2.5-flash-lite",
-            "gemini-2.5-flash",
-            "gemini-2.5-pro",
-            "gemini-3-flash-preview",
-            "gemini-3.1-pro-preview",
-        ]
+        self.fixed_model = "gemini-3-flash-preview"
         self.prompt_template_text = ""
         self.prompt_field_inputs: dict[str, QWidget] = {}
         self.prompt_options: dict[str, list[str]] = {}
@@ -104,7 +98,6 @@ class MainWindow(QMainWindow):
         self.company_context_checkbox: QCheckBox | None = None
         self.search_grounding_checkbox: QCheckBox | None = None
         self.auto_open_export_checkbox: QCheckBox | None = None
-        self.response_spinner_label: QLabel | None = None
         self._response_status_text = "Trạng thái phản hồi: Sẵn sàng"
         self._response_status_state = "idle"
         self._spinner_frames = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
@@ -175,30 +168,14 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(8, 8, 8, 8)
         right_layout.setSpacing(8)
 
-        controls_row = QHBoxLayout()
-        controls_row.setSpacing(8)
-        self.model_input = QComboBox()
-        self.model_input.setObjectName("modelInput")
-        self.model_input.addItems(self.available_models)
-        self.model_input.installEventFilter(self.wheel_event_filter)
-        self.model_input.currentTextChanged.connect(self._on_right_panel_setting_changed)
-        model_label = QLabel("Mô hình")
-        model_label.setObjectName("fieldLabel")
-        controls_row.addWidget(model_label)
-        controls_row.addWidget(self.model_input)
-
+        # Keep setting checkboxes near composer action buttons (not in top row)
         self.search_grounding_checkbox = QCheckBox("Tìm kiếm bằng Google")
         self.search_grounding_checkbox.setChecked(True)
         self.search_grounding_checkbox.toggled.connect(self._on_right_panel_setting_changed)
-        controls_row.addWidget(self.search_grounding_checkbox)
 
         self.auto_open_export_checkbox = QCheckBox("Tự mở file sau khi xuất")
         self.auto_open_export_checkbox.setChecked(True)
         self.auto_open_export_checkbox.toggled.connect(self._on_right_panel_setting_changed)
-        controls_row.addWidget(self.auto_open_export_checkbox)
-
-        controls_row.addStretch(1)
-        right_layout.addLayout(controls_row)
 
         right_splitter = QSplitter(Qt.Orientation.Horizontal)
         right_splitter.setHandleWidth(1)
@@ -230,8 +207,9 @@ class MainWindow(QMainWindow):
         self.add_image_button.setObjectName("addImageButton")
         self.add_image_button.setFixedSize(42, 42)
         self.add_image_button.clicked.connect(self._attach_images)
-        self._configure_icon_button(
+        self._configure_resource_svg_icon_button(
             self.add_image_button,
+            "image.svg",
             ("image-x-generic", "insert-image"),
             "🖼",
             "Thêm ảnh",
@@ -295,6 +273,8 @@ class MainWindow(QMainWindow):
         actions_row.addWidget(self.add_file_button)
         actions_row.addWidget(self.add_image_button)
         actions_row.addWidget(self.clear_file_button)
+        actions_row.addWidget(self.search_grounding_checkbox)
+        actions_row.addWidget(self.auto_open_export_checkbox)
         actions_row.addStretch(1)
         actions_row.addWidget(self.send_button)
         input_panel_layout.addLayout(actions_row)
@@ -303,20 +283,8 @@ class MainWindow(QMainWindow):
 
         self._adjust_input_box_height()
 
-        status_row = QHBoxLayout()
-        status_row.setSpacing(6)
-
-        self.response_spinner_label = QLabel("⠋")
-        self.response_spinner_label.setObjectName("responseSpinnerLabel")
-        self.response_spinner_label.setVisible(False)
-        status_row.addWidget(self.response_spinner_label)
-
-        self.response_status_label = QLabel("Trạng thái phản hồi: Sẵn sàng")
-        self.response_status_label.setObjectName("responseStatusLabel")
-        self.response_status_label.setProperty("state", "idle")
-        status_row.addWidget(self.response_status_label)
-        status_row.addStretch(1)
-        chat_layout.addLayout(status_row)
+        # Response status and spinner are rendered inside the assistant message bubble
+        # (no global status row here anymore).
 
         self._update_attachment_label()
         right_splitter.addWidget(chat_container)
@@ -624,31 +592,6 @@ class MainWindow(QMainWindow):
                 padding: 3px 6px;
             }
 
-            #responseStatusLabel {
-                color: #6b7280;
-                font-size: 12px;
-                font-weight: 600;
-                padding-left: 2px;
-            }
-
-            #responseStatusLabel[state="processing"] {
-                color: #2563eb;
-            }
-
-            #responseStatusLabel[state="done"] {
-                color: #059669;
-            }
-
-            #responseStatusLabel[state="error"] {
-                color: #dc2626;
-            }
-
-            #responseSpinnerLabel {
-                color: #2563eb;
-                font-size: 13px;
-                font-weight: 700;
-                min-width: 12px;
-            }
             """
         )
 
@@ -663,16 +606,9 @@ class MainWindow(QMainWindow):
     def _load_settings(self) -> None:
         self._restoring_right_panel_settings = True
         try:
-            model_raw = self.settings.value("chat/default_model", self.model_input.currentText())
             instructions_raw = self.settings.value("chat/default_instructions", "")
             search_grounding_raw = self.settings.value("chat/search_grounding_enabled", True)
             auto_open_exports_raw = self.settings.value("export/auto_open_exported_files", True)
-
-            model = str(model_raw or "").strip() or self.model_input.currentText().strip()
-            if model and self.model_input.findText(model) < 0:
-                self.model_input.addItem(model)
-            if model:
-                self.model_input.setCurrentText(model)
 
             instructions = str(instructions_raw or "").strip()
             self.default_instructions_text = instructions or self.default_instruction_profile_text
@@ -891,7 +827,6 @@ class MainWindow(QMainWindow):
         if self._restoring_right_panel_settings:
             return
 
-        self.settings.setValue("chat/default_model", self.model_input.currentText().strip())
 
         if self.search_grounding_checkbox is not None:
             self.settings.setValue(
@@ -1444,7 +1379,7 @@ class MainWindow(QMainWindow):
             conversation_id=conversation_id,
             instructions=self._resolve_request_instructions(),
             input=prompt,
-            model=self.model_input.currentText().strip() or "gemini-3.0-flash-overview",
+            model=self.fixed_model,
             file_paths=list(self.state.attached_paths),
             search_grounding=self.search_grounding_checkbox.isChecked() if self.search_grounding_checkbox is not None else True,
         )
@@ -1497,13 +1432,10 @@ class MainWindow(QMainWindow):
         self._set_busy_state(False)
 
     def _set_response_status(self, text: str, state: str) -> None:
+        # Update internal status and re-render messages so the assistant bubble shows it
         self._response_status_text = text
         self._response_status_state = state
-        self.response_status_label.setText(text)
-        self.response_status_label.setProperty("state", state)
-        self.response_status_label.style().unpolish(self.response_status_label)
-        self.response_status_label.style().polish(self.response_status_label)
-        self.response_status_label.update()
+        self._render_messages()
 
     def _adjust_input_box_height(self) -> None:
         document_height = int(self.input_box.document().size().height())
@@ -1549,6 +1481,46 @@ class MainWindow(QMainWindow):
         button.setIconSize(QSize(icon_size, icon_size))
         button.setToolTip(tooltip)
 
+    def _configure_resource_svg_icon_button(
+        self,
+        button: QPushButton,
+        svg_name: str,
+        theme_icon_names: tuple[str, ...],
+        fallback_symbol: str,
+        tooltip: str,
+        icon_size: int = 18,
+    ) -> None:
+        icon_dir = get_icons_dir()
+        svg_path = icon_dir / svg_name
+
+        resolved_icon = QIcon()
+        if svg_path.exists():
+            resolved_icon = QIcon(str(svg_path))
+
+        if resolved_icon.isNull():
+            self._configure_icon_button(
+                button,
+                theme_icon_names,
+                fallback_symbol,
+                tooltip,
+                icon_size=icon_size,
+            )
+            return
+
+        source_pixmap = resolved_icon.pixmap(icon_size, icon_size)
+        if not source_pixmap.isNull():
+            tinted_pixmap = source_pixmap.copy()
+            painter = QPainter(tinted_pixmap)
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+            painter.fillRect(tinted_pixmap.rect(), QColor("#ffffff"))
+            painter.end()
+            resolved_icon = QIcon(tinted_pixmap)
+
+        button.setIcon(resolved_icon)
+        button.setText("")
+        button.setIconSize(QSize(icon_size, icon_size))
+        button.setToolTip(tooltip)
+
     def _set_busy_state(self, is_busy: bool) -> None:
         self.input_box.setEnabled(not is_busy)
         self.send_button.setEnabled(not is_busy)
@@ -1567,26 +1539,25 @@ class MainWindow(QMainWindow):
         self._stop_response_spinner()
 
     def _start_response_spinner(self) -> None:
-        if self.response_spinner_label is None:
-            return
-
+        # Start the spinner timer and reset index; rendering of the spinner
+        # happens inside the assistant bubble via _render_messages.
         self._spinner_index = 0
-        self.response_spinner_label.setText(self._spinner_frames[self._spinner_index])
-        self.response_spinner_label.setVisible(True)
         if not self._spinner_timer.isActive():
             self._spinner_timer.start()
+        self._render_messages()
 
     def _stop_response_spinner(self) -> None:
+        # Stop spinner timer and refresh assistant bubble rendering
         self._spinner_timer.stop()
-        if self.response_spinner_label is not None:
-            self.response_spinner_label.setVisible(False)
+        self._render_messages()
 
     def _advance_response_spinner(self) -> None:
-        if self.response_spinner_label is None or not self.response_spinner_label.isVisible():
+        if not self._spinner_timer.isActive():
             return
 
         self._spinner_index = (self._spinner_index + 1) % len(self._spinner_frames)
-        self.response_spinner_label.setText(self._spinner_frames[self._spinner_index])
+        # refresh chat view so assistant bubble shows updated spinner frame
+        self._render_messages()
 
     def _attach_files(self) -> None:
         default_dir = Path.home() / "Desktop"
@@ -1637,6 +1608,7 @@ class MainWindow(QMainWindow):
             "<html><body style='margin:0; padding:0; font-family:Segoe UI, Arial, sans-serif; font-size:12px;'>"
         ]
         has_attachments = bool(self.state.attached_paths)
+        self.attachment_list.setVisible(has_attachments)
         self.clear_file_button.setEnabled(has_attachments)
 
         if self.search_grounding_checkbox is not None:
@@ -1736,6 +1708,12 @@ class MainWindow(QMainWindow):
             )
         ]
 
+        latest_assistant_index = -1
+        for idx in range(len(self.state.messages) - 1, -1, -1):
+            if self.state.messages[idx].role.lower() == "assistant":
+                latest_assistant_index = idx
+                break
+
         for message_index, message in enumerate(self.state.messages):
             role = message.role.lower()
             title = "Bạn" if role == "user" else "Trợ lý"
@@ -1790,7 +1768,7 @@ class MainWindow(QMainWindow):
                     "</table>"
                 )
 
-            if role == "assistant":
+            if role == "assistant" and message_index == latest_assistant_index:
                 state_label_map = {
                     "processing": "Đang phản hồi...",
                     "done": "Đã phản hồi",
@@ -1805,9 +1783,15 @@ class MainWindow(QMainWindow):
                     "idle": "#6b7280",
                 }
                 status_color = status_color_map.get(self._response_status_state, "#6b7280")
+                # show spinner frame inline when processing
+                spinner_html = ""
+                if self._response_status_state == "processing":
+                    frame = self._spinner_frames[self._spinner_index] if self._spinner_timer.isActive() else self._spinner_frames[0]
+                    spinner_html = f"<span style='display:inline-block; margin-right:8px; color:#2563eb; font-weight:700;'>{html.escape(frame)}</span>"
+
                 assistant_status_html = (
-                    f"<div style='margin-top:6px; font-size:11px; font-weight:600; color:{status_color};'>"
-                    f"Trạng thái: {status_label}"
+                    f"<div style='margin-bottom:6px; font-size:11px; font-weight:600; color:{status_color};'>"
+                    f"{spinner_html}Trạng thái: {status_label}"
                     "</div>"
                 )
 
@@ -1818,9 +1802,9 @@ class MainWindow(QMainWindow):
                 f"border:1px solid {bubble_border}; border-radius:10px;'>"
                 "<tr><td style='padding:8px 10px 6px 10px;'>"
                 f"<div style='font-weight:700; color:{title_color}; margin-bottom:4px;'>{title}</div>"
+                f"{assistant_status_html}"
                 f"<div style='line-height:1.42; color:#111827;'>{text}</div>"
                 f"{attachments_html}"
-                f"{assistant_status_html}"
                 f"{actions_html}"
                 f"<div style='font-size:11px; color:#6b7280; margin-top:6px;'>{timestamp}</div>"
                 "</td></tr></table>"

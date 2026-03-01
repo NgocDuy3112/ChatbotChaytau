@@ -59,8 +59,8 @@ def get_instructions_dir() -> Path:
 
     # 4. Source code relative path (fallback)
     # This file is at app/client/utils/resources.py
-    # So app/resources/instructions is 3 levels up + resources/instructions
-    src_path = Path(__file__).resolve().parents[3] / "resources" / "instructions"
+    # So app/resources/instructions is 2 levels up + resources/instructions
+    src_path = Path(__file__).resolve().parents[2] / "resources" / "instructions"
     return src_path
 
 
@@ -90,11 +90,27 @@ def get_sheets_dir() -> Path:
     if meipass:
         candidate_dirs.append(Path(meipass) / "resources" / "sheets")
 
-    candidate_dirs.append(Path(__file__).resolve().parents[3] / "resources" / "sheets")
+    candidate_dirs.append(Path(__file__).resolve().parents[2] / "resources" / "sheets")
 
     for directory in candidate_dirs:
         if _is_valid_sheets_dir(directory):
             return directory
 
     return candidate_dirs[-1]
+
+
+def get_icons_dir() -> Path:
+    env_dir = os.getenv("CHATBOT_ICONS_DIR")
+    if env_dir:
+        env_path = Path(env_dir)
+        if env_path.exists() and env_path.is_dir():
+            return env_path
+
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        bundled_path = Path(meipass) / "resources" / "icons"
+        if bundled_path.exists() and bundled_path.is_dir():
+            return bundled_path
+
+    return Path(__file__).resolve().parents[2] / "resources" / "icons"
 

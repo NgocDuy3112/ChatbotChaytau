@@ -61,6 +61,8 @@ Invoke-CheckedCommand -Command @(
     "$PSScriptRoot/app/resources/instructions;resources/instructions",
     "--add-data",
     "$PSScriptRoot/app/resources/sheets;resources/sheets",
+    "--add-data",
+    "$PSScriptRoot/app/resources/icons;resources/icons",
     $entryScript
 )
 
