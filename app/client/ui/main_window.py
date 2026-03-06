@@ -78,6 +78,10 @@ class MainWindow(QMainWindow):
     _DEFAULT_OVERLAY_PREFIXES = ("3_", "03_")
     _TEMPLATE_INSTRUCTION_PREFIXES = ("5_", "01_")
     _WORK_INSTRUCTION_PREFIXES = ("1_", "2_", "3_", "4_")
+    _MODEL_OPTIONS = (
+        "gemini-3.1-flash-lite-preview",
+        "gemini-3-flash-preview",
+    )
 
     def __init__(self, base_url: str | None = None):
         super().__init__()
@@ -88,7 +92,8 @@ class MainWindow(QMainWindow):
         self.state = ChatState()
         self.stream_worker: ChatStreamWorker | None = None
         self.settings = QSettings("ChatbotChaytau", "ChatbotDesktop")
-        self.fixed_model = "gemini-3-flash-preview"
+        self.fixed_model = self._MODEL_OPTIONS[0]
+        self.model_selector: QComboBox | None = None
         self.prompt_template_text = ""
         self.prompt_field_inputs: dict[str, QWidget] = {}
         self.prompt_options: dict[str, list[str]] = {}
@@ -240,6 +245,13 @@ class MainWindow(QMainWindow):
             icon_size=18,
         )
 
+        self.model_selector = QComboBox()
+        self.model_selector.setObjectName("modelSelector")
+        self.model_selector.addItems(list(self._MODEL_OPTIONS))
+        self.model_selector.setCurrentText(self.fixed_model)
+        self.model_selector.setToolTip("Chọn model phản hồi")
+        self.model_selector.currentTextChanged.connect(self._on_right_panel_setting_changed)
+
         attachments_row = QHBoxLayout()
         attachments_row.setSpacing(8)
 
@@ -276,6 +288,7 @@ class MainWindow(QMainWindow):
         actions_row.addWidget(self.search_grounding_checkbox)
         actions_row.addWidget(self.auto_open_export_checkbox)
         actions_row.addStretch(1)
+        actions_row.addWidget(self.model_selector)
         actions_row.addWidget(self.send_button)
         input_panel_layout.addLayout(actions_row)
 
@@ -498,6 +511,20 @@ class MainWindow(QMainWindow):
                 padding: 6px;
             }
 
+            #modelSelector {
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                background: #ffffff;
+                padding: 4px 8px;
+                min-width: 200px;
+                min-height: 32px;
+            }
+
+            #modelSelector:disabled {
+                color: #9ca3af;
+                background: #f3f4f6;
+            }
+
             #inputComposer {
                 border: 1px solid #d1d5db;
                 border-radius: 14px;
@@ -532,7 +559,7 @@ class MainWindow(QMainWindow):
             }
 
             QComboBox QAbstractItemView {
-                min-width: 375px;
+                min-width: 200px;
             }
 
             /* Đảm bảo QComboBox có mũi tên rõ ràng */
@@ -583,15 +610,74 @@ class MainWindow(QMainWindow):
             #attachmentList {
                 border: 1px solid #d1d5db;
                 border-radius: 8px;
-                background: #ffffff;
-                padding: 2px;
+                background: #f9fafb;
+                padding: 4px;
                 color: #4b5563;
             }
 
-            #attachmentList::item {
-                padding: 3px 6px;
+            /* Bong bóng Chat */
+            .message-container {
+                margin: 10px 0;
             }
 
+            .user-bubble {
+                background-color: #007bff;
+                color: white;
+                border-radius: 15px 15px 0 15px;
+                padding: 10px 15px;
+                margin-left: 50px;
+                margin-right: 5px;
+                box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+            }
+
+            .assistant-bubble {
+                background-color: #f1f3f4;
+                color: #202124;
+                border-radius: 15px 15px 15px 0;
+                padding: 12px 18px;
+                margin-right: 50px;
+                margin-left: 5px;
+                border: 1px solid #e0e0e0;
+            }
+
+            .message-meta {
+                font-size: 11px;
+                color: #70757a;
+                margin-bottom: 4px;
+            }
+
+            /* Markdown Enhancements */
+            code {
+                background-color: rgba(0,0,0,0.05);
+                padding: 2px 4px;
+                border-radius: 4px;
+                font-family: \"Consolas\", \"Monaco\", monospace;
+            }
+
+            pre {
+                background-color: #2d2d2d;
+                color: #f8f8f2;
+                padding: 12px;
+                border-radius: 8px;
+                margin: 10px 0;
+                font-family: \"Consolas\", \"Monaco\", monospace;
+            }
+
+            table {
+                border-collapse: collapse;
+                width: 100%;
+                margin: 10px 0;
+            }
+
+            th, td {
+                border: 1px solid #dfe1e5;
+                padding: 8px;
+                text-align: left;
+            }
+
+            th {
+                background-color: #f8f9fa;
+            }
             """
         )
 
@@ -609,6 +695,7 @@ class MainWindow(QMainWindow):
             instructions_raw = self.settings.value("chat/default_instructions", "")
             search_grounding_raw = self.settings.value("chat/search_grounding_enabled", True)
             auto_open_exports_raw = self.settings.value("export/auto_open_exported_files", True)
+            selected_model_raw = self.settings.value("chat/model_name", self.fixed_model)
 
             instructions = str(instructions_raw or "").strip()
             self.default_instructions_text = instructions or self.default_instruction_profile_text
@@ -618,6 +705,16 @@ class MainWindow(QMainWindow):
 
             if self.auto_open_export_checkbox is not None:
                 self.auto_open_export_checkbox.setChecked(self._coerce_setting_bool(auto_open_exports_raw))
+
+            selected_model = str(selected_model_raw or self.fixed_model).strip()
+            if selected_model not in self._MODEL_OPTIONS:
+                selected_model = self.fixed_model
+
+            if self.model_selector is not None:
+                model_index = self.model_selector.findText(selected_model)
+                self.model_selector.setCurrentIndex(model_index if model_index >= 0 else 0)
+
+            self.fixed_model = selected_model
         finally:
             self._restoring_right_panel_settings = False
 
@@ -839,6 +936,12 @@ class MainWindow(QMainWindow):
                 "export/auto_open_exported_files",
                 bool(self.auto_open_export_checkbox.isChecked()),
             )
+
+        if self.model_selector is not None:
+            selected_model = self.model_selector.currentText().strip()
+            if selected_model in self._MODEL_OPTIONS:
+                self.fixed_model = selected_model
+                self.settings.setValue("chat/model_name", selected_model)
 
         for placeholder, input_field in self.prompt_field_inputs.items():
             value = self._read_prompt_field_value(input_field)
@@ -1379,7 +1482,7 @@ class MainWindow(QMainWindow):
             conversation_id=conversation_id,
             instructions=self._resolve_request_instructions(),
             input=prompt,
-            model=self.fixed_model,
+            model=self._selected_model(),
             file_paths=list(self.state.attached_paths),
             search_grounding=self.search_grounding_checkbox.isChecked() if self.search_grounding_checkbox is not None else True,
         )
@@ -1526,6 +1629,8 @@ class MainWindow(QMainWindow):
         self.send_button.setEnabled(not is_busy)
         self.add_file_button.setEnabled(not is_busy)
         self.add_image_button.setEnabled(not is_busy)
+        if self.model_selector is not None:
+            self.model_selector.setEnabled(not is_busy)
 
         if is_busy:
             self.clear_file_button.setEnabled(False)
@@ -1537,6 +1642,15 @@ class MainWindow(QMainWindow):
         self._update_attachment_label()
         self.input_box.setPlaceholderText("Nhập tin nhắn...")
         self._stop_response_spinner()
+
+    def _selected_model(self) -> str:
+        if self.model_selector is not None:
+            selected_model = self.model_selector.currentText().strip()
+            if selected_model in self._MODEL_OPTIONS:
+                self.fixed_model = selected_model
+                return selected_model
+
+        return self.fixed_model
 
     def _start_response_spinner(self) -> None:
         # Start the spinner timer and reset index; rendering of the spinner
@@ -1604,54 +1718,56 @@ class MainWindow(QMainWindow):
         self._update_attachment_label()
 
     def _update_attachment_label(self) -> None:
-        card_blocks: list[str] = [
-            "<html><body style='margin:0; padding:0; font-family:Segoe UI, Arial, sans-serif; font-size:12px;'>"
-        ]
-        has_attachments = bool(self.state.attached_paths)
-        self.attachment_list.setVisible(has_attachments)
-        self.clear_file_button.setEnabled(has_attachments)
-
-        if self.search_grounding_checkbox is not None:
-            if has_attachments:
-                has_non_image_file = any(
-                    not self._is_image_attachment_path(file_path)
-                    for file_path in self.state.attached_paths
-                )
-                if has_non_image_file:
-                    if self.search_grounding_checkbox.isChecked():
-                        self.search_grounding_checkbox.setChecked(False)
-                    self.search_grounding_checkbox.setEnabled(False)
-                    self.search_grounding_checkbox.setToolTip("Đã tắt khi có file không phải ảnh")
-                else:
-                    self.search_grounding_checkbox.setEnabled(True)
-                    self.search_grounding_checkbox.setToolTip("")
-            else:
-                self.search_grounding_checkbox.setEnabled(True)
-                if not self.search_grounding_checkbox.isChecked():
-                    self.search_grounding_checkbox.setChecked(True)
-                self.search_grounding_checkbox.setToolTip("")
-
         if not self.state.attached_paths:
-            card_blocks.append(
-                "<div style='margin:8px; color:#6b7280;'>Chưa có tệp đính kèm</div>"
-            )
-            card_blocks.append("</body></html>")
-            self.attachment_list.setHtml("".join(card_blocks))
-            self.attachment_list.setToolTip("")
+            self.attachment_list.setVisible(False)
+            self.clear_file_button.setEnabled(False)
             return
 
+        self.attachment_list.setVisible(True)
+        self.clear_file_button.setEnabled(True)
+
+        html_blocks = [
+            "<html><body style='margin:0; padding:8px; font-family:Segoe UI, sans-serif; background-color:#f8fafc;'>",
+            "<table cellspacing='10' cellpadding='0'><tr>"
+        ]
+
         for file_path in self.state.attached_paths:
-            file_name = Path(file_path).name
-            chip_html = self._build_attachment_chip_html(file_name)
-            card_blocks.append(
-                "<div style='margin:6px; padding:6px 8px; border:1px solid #e5e7eb; border-radius:8px; background:#ffffff;'>"
-                f"{chip_html}"
-                f"<div style='margin-top:2px; color:#6b7280; font-size:11px;'>{html.escape(file_name)}</div>"
-                "</div>"
+            path_obj = Path(file_path)
+            file_name = path_obj.name
+            ext = path_obj.suffix[1:].upper() if path_obj.suffix else "FILE"
+            
+            # Chọn màu theo loại file
+            color = "#3b82f6" # Blue
+            if ext in ["PDF"]: color = "#ef4444" # Red
+            elif ext in ["DOC", "DOCX"]: color = "#2563eb" # Dark Blue
+            elif ext in ["XLS", "XLSX", "CSV"]: color = "#10b981" # Green
+            elif ext in ["PNG", "JPG", "JPEG", "WEBP"]: color = "#8b5cf6" # Purple
+
+            # Nội dung icon/thumbnail
+            if self._is_image_attachment_path(file_path):
+                file_url = QUrl.fromLocalFile(file_path).toString()
+                content = f"<img src='{file_url}' width='50' height='50' style='border-radius:4px;'>"
+            else:
+                content = (
+                    f"<div style='width:50px; height:50px; background:#f1f5f9; color:{color}; "
+                    "font-weight:bold; font-size:11px; border-radius:4px; border:1px solid #e2e8f0; "
+                    "text-align:center; padding-top:16px;'>"
+                    f"{ext}</div>"
+                )
+
+            html_blocks.append(
+                f"<td valign='top'>"
+                f"<div style='width:80px; background:white; border:1px solid #cbd5e1; border-radius:8px;'>"
+                f"<div style='height:4px; background-color:{color}; border-top-left-radius:8px; border-top-right-radius:8px;'></div>"
+                f"<div style='padding:8px; text-align:center;'>"
+                f"{content}"
+                f"<div style='margin-top:6px; font-size:10px; color:#1e293b; height:24px; overflow:hidden;'>{html.escape(file_name)}</div>"
+                f"</div></div>"
+                f"</td>"
             )
 
-        card_blocks.append("</body></html>")
-        self.attachment_list.setHtml("".join(card_blocks))
+        html_blocks.append("</tr></table></body></html>")
+        self.attachment_list.setHtml("".join(html_blocks))
         self.attachment_list.setToolTip("\n".join(self.state.attached_paths))
 
     def _is_image_attachment_path(self, file_path: str) -> bool:
@@ -1703,8 +1819,25 @@ class MainWindow(QMainWindow):
     def _render_messages(self) -> None:
         blocks: list[str] = [
             (
-                "<html><body style='margin:0; font-family:Segoe UI, Arial, sans-serif; "
-                "font-size:13px; color:#111827;'>"
+                "<html><head>"
+                "<style>"
+                "body { margin: 10px; font-family: 'Segoe UI', sans-serif; font-size: 13px; color: #111827; background-color: #ffffff; }"
+                ".message-container { margin-bottom: 15px; width: 100%; }"
+                ".user-bubble { background-color: #007bff; color: white; border-radius: 15px 15px 0 15px; padding: 10px 15px; margin-left: 50px; border: 1px solid #0069d9; }"
+                ".assistant-bubble { background-color: #f1f3f4; color: #202124; border-radius: 15px 15px 15px 0; padding: 12px 18px; margin-right: 50px; border: 1px solid #e0e0e0; }"
+                ".meta { font-size: 11px; color: #70757a; margin-bottom: 4px; font-weight: 600; }"
+                ".user-meta { text-align: right; color: #007bff; }"
+                ".timestamp { font-size: 10px; color: rgba(0,0,0,0.4); margin-top: 5px; }"
+                ".user-timestamp { color: rgba(255,255,255,0.7); text-align: right; }"
+                "code { background-color: rgba(0,0,0,0.05); padding: 2px 4px; border-radius: 4px; font-family: 'Consolas', monospace; }"
+                "pre { background-color: #2d2d2d; color: #f8f8f2; padding: 10px; border-radius: 8px; font-family: 'Consolas', monospace; }"
+                "table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 12px; }"
+                "th, td { border: 1px solid #dfe1e5; padding: 6px; text-align: left; }"
+                "th { background-color: #f8f9fa; }"
+                "a { color: #007bff; text-decoration: none; font-weight: bold; }"
+                ".assistant-bubble a { color: #1a73e8; }"
+                "</style>"
+                "</head><body>"
             )
         ]
 
@@ -1716,59 +1849,42 @@ class MainWindow(QMainWindow):
 
         for message_index, message in enumerate(self.state.messages):
             role = message.role.lower()
-            title = "Bạn" if role == "user" else "Trợ lý"
+            is_user = (role == "user")
+            title = "Bạn" if is_user else "Trợ lý"
             text = self._render_markdown_html(message.text)
             attachments_html = ""
 
-            if role == "user" and message.attachment_names:
+            if is_user and message.attachment_names:
                 filename_items = "".join(
                     self._build_attachment_chip_html(file_name)
                     for file_name in message.attachment_names
                 )
                 attachments_html = (
                     "<div style='margin-top:8px; padding:6px 8px; border-radius:8px; "
-                    "background:#ffffff; border:1px solid #cfe0ff;'>"
-                    "<div style='font-size:12px; font-weight:600; color:#1e3a8a; margin-bottom:4px;'>"
+                    "background:rgba(255,255,255,0.2); border:1px solid rgba(255,255,255,0.3);'>"
+                    "<div style='font-size:11px; font-weight:700; color:white; margin-bottom:4px;'>"
                     "Tệp đính kèm:</div>"
-                    f"<div style='margin:0; color:#1f2937;'>{filename_items}</div>"
+                    f"<div style='margin:0;'>{filename_items}</div>"
                     "</div>"
                 )
 
-            timestamp = ""
+            timestamp_str = ""
             if isinstance(message.created_at, datetime):
-                timestamp = message.created_at.strftime("%H:%M")
-
-            if role == "user":
-                align = "right"
-                bubble_background = "#e7f0ff"
-                bubble_border = "#bfd4ff"
-                title_color = "#1e3a8a"
-            else:
-                align = "left"
-                bubble_background = "#ffffff"
-                bubble_border = "#dfe3ea"
-                title_color = "#374151"
+                timestamp_str = message.created_at.strftime("%H:%M")
 
             actions_html = ""
             assistant_status_html = ""
-            if role == "assistant" and message.text.strip():
+            if not is_user and message.text.strip():
                 actions_html = (
-                    "<table cellspacing='0' cellpadding='0' style='margin-top:8px;'>"
-                    "<tr>"
-                    "<td style='background:#eef2ff; border:1px solid #c7d2fe; border-radius:6px; padding:4px 8px;'>"
-                    f"<a href='action://export-word/{message_index}' style='text-decoration:none; color:#1e3a8a; font-weight:600;'>"
-                    "📄 Xuất file Word</a>"
-                    "</td>"
-                    "<td style='width:20px; min-width:20px;'>&nbsp;</td>"
-                    "<td style='background:#ecfeff; border:1px solid #a5f3fc; border-radius:6px; padding:4px 8px;'>"
-                    f"<a href='action://export-pdf/{message_index}' style='text-decoration:none; color:#155e75; font-weight:600;'>"
-                    "📕 Xuất file PDF</a>"
-                    "</td>"
-                    "</tr>"
-                    "</table>"
+                    "<div style='margin-top:10px;'>"
+                    f"<a href='action://export-word/{message_index}'>📄 Xuất Word</a>"
+                    "&nbsp;&nbsp;&nbsp;"
+                    f"<a href='action://export-pdf/{message_index}'>📕 Xuất PDF</a>"
+                    "</div>"
                 )
 
-            if role == "assistant" and message_index == latest_assistant_index:
+            if not is_user and message_index == latest_assistant_index:
+                # ... (spinner logic)
                 state_label_map = {
                     "processing": "Đang phản hồi...",
                     "done": "Đã phản hồi",
@@ -1776,40 +1892,38 @@ class MainWindow(QMainWindow):
                     "idle": "Sẵn sàng",
                 }
                 status_label = state_label_map.get(self._response_status_state, self._response_status_text)
-                status_color_map = {
-                    "processing": "#2563eb",
-                    "done": "#059669",
-                    "error": "#dc2626",
-                    "idle": "#6b7280",
-                }
-                status_color = status_color_map.get(self._response_status_state, "#6b7280")
-                # show spinner frame inline when processing
                 spinner_html = ""
                 if self._response_status_state == "processing":
                     frame = self._spinner_frames[self._spinner_index] if self._spinner_timer.isActive() else self._spinner_frames[0]
-                    spinner_html = f"<span style='display:inline-block; margin-right:8px; color:#2563eb; font-weight:700;'>{html.escape(frame)}</span>"
+                    spinner_html = f"<span style='color:#1a73e8; font-weight:bold;'>{html.escape(frame)} </span>"
 
                 assistant_status_html = (
-                    f"<div style='margin-bottom:6px; font-size:11px; font-weight:600; color:{status_color};'>"
+                    f"<div style='margin-bottom:8px; font-size:11px; font-weight:bold; color:#5f6368;'>"
                     f"{spinner_html}Trạng thái: {status_label}"
                     "</div>"
                 )
 
-            bubble = (
-                "<table width='100%' cellspacing='0' cellpadding='0' style='margin:0 0 10px 0;'>"
-                f"<tr><td align='{align}'>"
-                f"<table cellspacing='0' cellpadding='0' width='78%' style='background:{bubble_background}; "
-                f"border:1px solid {bubble_border}; border-radius:10px;'>"
-                "<tr><td style='padding:8px 10px 6px 10px;'>"
-                f"<div style='font-weight:700; color:{title_color}; margin-bottom:4px;'>{title}</div>"
-                f"{assistant_status_html}"
-                f"<div style='line-height:1.42; color:#111827;'>{text}</div>"
-                f"{attachments_html}"
-                f"{actions_html}"
-                f"<div style='font-size:11px; color:#6b7280; margin-top:6px;'>{timestamp}</div>"
-                "</td></tr></table>"
-                "</td></tr></table>"
-            )
+            if is_user:
+                bubble = (
+                    "<div class='message-container'>"
+                    f"<div class='meta user-meta'>{title}</div>"
+                    f"<div class='user-bubble'>"
+                    f"{text}"
+                    f"{attachments_html}"
+                    f"<div class='timestamp user-timestamp'>{timestamp_str}</div>"
+                    "</div></div>"
+                )
+            else:
+                bubble = (
+                    "<div class='message-container'>"
+                    f"<div class='meta'>{title}</div>"
+                    f"<div class='assistant-bubble'>"
+                    f"{assistant_status_html}"
+                    f"{text}"
+                    f"{actions_html}"
+                    f"<div class='timestamp'>{timestamp_str}</div>"
+                    "</div></div>"
+                )
             blocks.append(bubble)
 
         blocks.append("</body></html>")
