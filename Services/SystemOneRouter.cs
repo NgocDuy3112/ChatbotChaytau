@@ -1,4 +1,3 @@
-using System.Net.Http.Json;
 using System.Text.Json;
 
 namespace chatbotchaytau.Services;
@@ -35,21 +34,40 @@ public class SystemOneRouter(HttpClient http, IConfiguration config)
                 }
             }
         };
-        using var req = new HttpRequestMessage(HttpMethod.Post, _systemOneEndpoint);
-        req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _apiKey);
-        req.Content = JsonContent.Create(body);
 
-        using var res = await http.SendAsync(req, ct);
-        res.EnsureSuccessStatusCode();
-        using var doc = await JsonDocument.ParseAsync(await res.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
-        
-        var choice = doc.RootElement.GetProperty("answers").GetProperty("tier").GetProperty("choice").GetString() ?? "light";
-        return choice switch
+        try
         {
-            "strong" => _strongModel,
-            "moderate" => _moderateModel,
-            _ => _lightModel
-        };
+            using var req = new HttpRequestMessage(HttpMethod.Post, _systemOneEndpoint);
+            req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _apiKey);
+            req.Content = JsonContent.Create(body);
+
+            using var res = await http.SendAsync(req, ct);
+
+            if (!res.IsSuccessStatusCode)
+            {
+                var detail = await res.Content.ReadAsStringAsync(ct);
+                throw new HttpRequestException(
+                    $"System One returned {(int)res.StatusCode}: {detail}");
+            }
+
+            using var doc = await JsonDocument.ParseAsync(
+                await res.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+
+            var choice = doc.RootElement
+                .GetProperty("answers").GetProperty("tier").GetProperty("choice").GetString() ?? "light";
+
+            return choice switch
+            {
+                "strong" => _strongModel,
+                "moderate" => _moderateModel,
+                _ => _lightModel
+            };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // logger.LogWarning(ex, "Model routing failed; falling back to the light tier.");
+            return _lightModel;
+        }
     }
 
 }

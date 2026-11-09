@@ -1,40 +1,43 @@
-using System.ClientModel;
+using chatbotchaytau.Components;
+using chatbotchaytau.Data;
+using chatbotchaytau.Extensions;
+using chatbotchaytau.Services;
+using chatbotchaytau.Services.Conversations;
+using chatbotchaytau.Services.Documents;
+using chatbotchaytau.Services.Ingestion;
+using DotNetEnv;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using OpenAI;
-using chatbotchaytau.Components;
-using chatbotchaytau.Services;
-using chatbotchaytau.Services.Ingestion;
+using System.ClientModel;
+
+Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 
-var or = builder.Configuration.GetSection("OpenRouter");
-var apiKey = or["ApiKey"] ?? throw new InvalidOperationException("Missing configuration: OpenRouter:ApiKey");
-var baseUrl = or["BaseUrl"] ?? "https://openrouter.ai/api/v1";
-var chatModel = or["LightModel"] ?? "openai/gpt-4o-mini";
-var embeddingModel = or["EmbeddingModel"] ?? "openai/text-embedding-3-small";
+builder.Services.AddAppIdentity(builder.Configuration, builder.Environment);
+builder.Services.AddScoped<IConversationStore, ConversationStore>();
 
-var options = new OpenAIClientOptions { Endpoint = new Uri(baseUrl) };
-var openAIClient = new OpenAIClient(new ApiKeyCredential(apiKey), options);
+// chat stack
+var or = builder.Configuration.GetSection("OpenRouter");
+var options = new OpenAIClientOptions { 
+    Endpoint = new Uri(or["BaseUrl"] ?? "https://openrouter.ai/api/v1") 
+};
+var openAIClient = new OpenAIClient(new ApiKeyCredential(or["ApiKey"]!), options);
 
 #pragma warning disable OPENAI001
-var chatClient = openAIClient.GetResponsesClient().AsIChatClient(chatModel);
+var chatClient = openAIClient.GetResponsesClient().AsIChatClient(or["LightModel"]!);
 #pragma warning restore OPENAI001
-
-var embeddingGenerator = openAIClient.GetEmbeddingClient(embeddingModel).AsIEmbeddingGenerator();
-
-var vectorStorePath = Path.Combine(AppContext.BaseDirectory, "vector-store.db");
-var vectorStoreConnectionString = $"Data Source={vectorStorePath}";
-builder.Services.AddSqliteVectorStore(_ => vectorStoreConnectionString);
-builder.Services.AddSqliteCollection<Guid, IngestedChunk>(IngestedChunk.CollectionName, vectorStoreConnectionString);
+var embeddings = openAIClient.GetEmbeddingClient(or["EmbeddingModel"]!).AsIEmbeddingGenerator();
 
 builder.Services.AddHttpClient<SystemOneRouter>();
 builder.Services.AddSingleton<SystemOneRouter>();
-builder.Services.AddSingleton<DataIngestor>();
 builder.Services.AddSingleton<SemanticSearch>();
-builder.Services.AddKeyedSingleton("ingestion_directory", new DirectoryInfo(Path.Combine(builder.Environment.WebRootPath, "Data")));
-builder.Services.AddChatClient(chatClient).UseFunctionInvocation().UseLogging();
-builder.Services.AddEmbeddingGenerator(embeddingGenerator);
+builder.Services.AddScoped<DocumentIngestor>();
+builder.Services.AddScoped<DocumentService>();
+builder.Services.AddChatClient(chatClient).UseLogging();
+builder.Services.AddEmbeddingGenerator(embeddings);
 
 var app = builder.Build();
 
@@ -42,10 +45,22 @@ if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
     app.UseHsts();
+    app.UseHttpsRedirection();
 }
 
-app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseAntiforgery();
 app.UseStaticFiles();
+
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
+app.MapAuthEndpoints(app.Environment);
+app.MapDocumentEndpoints();
+
+if (app.Configuration.GetValue<bool>("Database:AutoMigrate"))
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
+}
+
 app.Run();
