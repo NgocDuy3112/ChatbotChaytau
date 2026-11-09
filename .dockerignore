@@ -1,0 +1,13 @@
+**/bin/
+**/obj/
+.git/
+.gitignore
+.vscode/
+.env
+.env.*
+data/
+App_Data/*.db
+Dockerfile
+.dockerignore
+docker-compose.yaml
+README.md
