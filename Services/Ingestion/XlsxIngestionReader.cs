@@ -16,10 +16,15 @@ internal sealed class XlsxIngestionReader : IngestionDocumentReader
 
         var sharedStrings = workbookPart.SharedStringTablePart?.SharedStringTable;
 
-        foreach (var sheet in workbookPart.Workbook.Descendants<Sheet>())
+        var workbook = workbookPart.Workbook;
+        if (workbook is null) return Task.FromResult(document);
+
+        foreach (var sheet in workbook.Descendants<Sheet>())
         {
-            var worksheetPart = (WorksheetPart)workbookPart.GetPartById(sheet.Id!);
-            var sheetData = worksheetPart.Worksheet.GetFirstChild<SheetData>();
+            if (sheet.Id?.Value is not { Length: > 0 } relationshipId) continue;
+
+            var worksheetPart = workbookPart.GetPartById(relationshipId) as WorksheetPart;
+            var sheetData = worksheetPart?.Worksheet?.GetFirstChild<SheetData>();
             if (sheetData is null) continue;
 
             var section = new IngestionDocumentSection();
