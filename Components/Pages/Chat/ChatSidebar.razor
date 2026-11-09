@@ -1,0 +1,89 @@
+@using System.Security.Claims
+@inject IConversationStore Store
+@inject AuthenticationStateProvider AuthState
+
+<aside class="sidebar">
+    <div class="sidebar-head">
+        <button class="new-chat" @onclick="OnNewChat">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                <path stroke-linecap="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            New chat
+        </button>
+    </div>
+
+    <nav class="sidebar-list" aria-label="Conversations">
+        @if (conversations is null)
+        {
+            <p class="sidebar-empty">Loading…</p>
+        }
+        else if (conversations.Count == 0)
+        {
+            <p class="sidebar-empty">No conversations yet.</p>
+        }
+        else
+        {
+            @foreach (var conversation in conversations)
+            {
+                <div class="sidebar-item @(conversation.Id == ActiveId ? "is-active" : "")">
+                    <button class="sidebar-link" @onclick="() => SelectAsync(conversation.Id)">
+                        <span class="sidebar-title">@conversation.Title</span>
+                        <time datetime="@conversation.UpdatedAt.ToString("O")">@conversation.UpdatedAt.ToLocalTime().ToString("d MMM")</time>
+                    </button>
+                    <button class="sidebar-delete" title="Delete conversation"
+                            @onclick="() => DeleteAsync(conversation.Id)">×</button>
+                </div>
+            }
+        }
+    </nav>
+
+    <div class="sidebar-foot">
+        <div class="sidebar-user">
+            <span class="avatar" aria-hidden="true">@Initial</span>
+            <span class="sidebar-name" title="@DisplayName">@DisplayName</span>
+        </div>
+        <form method="post" action="/account/signout">
+            <AntiforgeryToken />
+            <button type="submit" class="sidebar-signout">Sign out</button>
+        </form>
+    </div>
+</aside>
+
+@code {
+    private IReadOnlyList<ConversationSummary>? conversations;
+    private string userId = string.Empty;
+    private string DisplayName = string.Empty;
+
+    [Parameter] public Guid? ActiveId { get; set; }
+    [Parameter] public EventCallback<Guid> OnSelect { get; set; }
+    [Parameter] public EventCallback OnNewChat { get; set; }
+
+    private string Initial => DisplayName.Length > 0 ? DisplayName[..1].ToUpperInvariant() : "?";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        var user = state.User;
+        userId = user.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+        DisplayName = user.FindFirstValue("name") ?? user.Identity?.Name ?? "Signed in";
+        await ReloadAsync();
+    }
+
+    public async Task ReloadAsync()
+    {
+        conversations = string.IsNullOrEmpty(userId)
+            ? []
+            : await Store.ListAsync(userId);
+        StateHasChanged();
+    }
+
+    private async Task SelectAsync(Guid id) => await OnSelect.InvokeAsync(id);
+
+    private async Task DeleteAsync(Guid id)
+    {
+        if (string.IsNullOrEmpty(userId)) return;
+        await Store.DeleteAsync(id, userId);
+        await ReloadAsync();
+        if (id == ActiveId) await OnNewChat.InvokeAsync();
+    }
+}

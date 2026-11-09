@@ -1,15 +1,16 @@
-﻿.input-box {
-    display: flex; 
-    flex-direction: column; 
-    background: white;
-    border: 1px solid rgb(229, 231, 235);
-    border-radius: 8px;
-    padding: 0.5rem 0.75rem;
-    margin-top: 0.75rem; 
+.input-box {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-raised);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    padding: var(--space-2) var(--space-3);
+    transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
 
     .input-box:focus-within {
-        outline: 2px solid #4152d5;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
     }
 
 textarea {
@@ -17,41 +18,57 @@ textarea {
     border: none;
     outline: none;
     flex-grow: 1;
+    min-height: 24px;
+    max-height: 40vh;
+    padding: 4px 0;
+    font: inherit;
+    color: var(--text);
+    background: transparent;
 }
 
-    textarea:placeholder-shown + .tools {
-        --send-button-color: #aaa;
-    }
+    textarea::placeholder { color: var(--text-muted); }
 
 .tools {
-    display: flex; 
-    margin-top: 1rem; 
+    display: flex;
     align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
 }
-
-.tool-icon {
-    width: 1.25rem;
-    height: 1.25rem;
-}
-
-.send-button {
-    color: var(--send-button-color);
-    margin-left: auto;
-}
-
-    .send-button:hover {
-        color: black;
-    }
 
 .attach {
-    background-color: white;
-    border-style: dashed;
-    color: #888;
-    border-color: #888;
-    padding: 3px 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
 
-    .attach:hover {
-        background-color: #f0f0f0;
-        color: black;
-    }
+    .attach:hover { color: var(--text); background: var(--surface); }
+
+    .attach svg { width: 1.125rem; height: 1.125rem; }
+
+    /* Hide the native control; the label is the button. */
+    .attach ::deep input[type=file] { display: none; }
+
+.send-button {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    color: var(--accent-contrast);
+    background: var(--accent);
+    border: 0;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background var(--dur) var(--ease);
+}
+
+    .send-button:hover { background: var(--accent-hover); }
+
+    .send-button svg { width: 1.125rem; height: 1.125rem; }

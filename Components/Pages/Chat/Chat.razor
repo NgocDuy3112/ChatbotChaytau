@@ -1,84 +1,244 @@
-﻿@page "/"
-@using System.ComponentModel
-@inject IChatClient ChatClient
-@inject NavigationManager Nav
-@inject SemanticSearch Search
+@page "/"
+@attribute [Authorize]
+@using System.Security.Claims
+@using OpenAI
+@using System.ClientModel
 @implements IDisposable
+@inject SemanticSearch Search
+@inject SystemOneRouter Router
+@inject IConfiguration Config
+@inject IConversationStore Store
+@inject AuthenticationStateProvider AuthState
+@inject DocumentService Documents
 @inject IWebHostEnvironment Env
 
 <PageTitle>Chat</PageTitle>
 
-<ChatHeader OnNewChat="@ResetConversationAsync" />
+<div class="app-shell">
+    <ChatSidebar @ref="sidebar"
+                 ActiveId="conversationId"
+                 OnSelect="SelectConversationAsync"
+                 OnNewChat="ResetConversationAsync" />
 
-<ChatMessageList Messages="@messages" InProgressMessage="@currentResponseMessage">
-    <NoMessagesContent>
-        <div>To get started, try asking about these example documents. You can replace these with your own data and replace this message.</div>
-        <ChatCitation File="Example_Emergency_Survival_Kit.pdf"/>
-        <ChatCitation File="Example_GPS_Watch.md"/>
-    </NoMessagesContent>
-</ChatMessageList>
+    <main class="chat-main">
+        <ChatHeader OnNewChat="ResetConversationAsync"
+                    Title="@title"
+                    AttachedFile="@attachedFileName" />
 
-<div class="chat-container">
-    <ChatSuggestions OnSelected="@AddUserMessageAsync" @ref="@chatSuggestions" />
-    <ChatInput OnSend="@AddUserMessageAsync" @ref="@chatInput" />
-    <SurveyPrompt /> @* Remove this line to eliminate the template survey message *@
+        <ChatMessageList Messages="@messages" InProgressMessage="@currentResponseMessage">
+            <NoMessagesContent>
+                <div class="empty-state">
+                    <h2>Ask about your documents</h2>
+                    <p>Attach a PDF, Markdown, Word, or Excel file, then ask anything about it.</p>
+                </div>
+            </NoMessagesContent>
+        </ChatMessageList>
+
+        <div class="chat-container">
+            @if (status is not null)
+            {
+                <p class="status">@status</p>
+            }
+            <ChatSuggestions OnSelected="@AddUserMessageAsync" @ref="@chatSuggestions" />
+            <ChatInput OnSend="@AddUserMessageAsync"
+                       OnFileSelected="@UploadAsync"
+                       AttachedFile="@attachedFileName"
+                       @ref="@chatInput" />
+        </div>
+    </main>
 </div>
 
 @code {
-    private string SystemPrompt => File.ReadAllText(Path.Combine(Env.WebRootPath, "prompts", "SYSTEM.md"));
-
-    private int statefulMessageCount;
-    private readonly ChatOptions chatOptions = new();
     private readonly List<ChatMessage> messages = new();
     private CancellationTokenSource? currentResponseCancellation;
     private ChatMessage? currentResponseMessage;
     private ChatInput? chatInput;
     private ChatSuggestions? chatSuggestions;
+    private ChatSidebar? sidebar;
 
-    protected override void OnInitialized()
+    private string userId = string.Empty;
+    private Guid? conversationId;
+    private string? title;
+    private string? attachedFileName;
+    private string? status;
+
+    private string SystemPrompt =>
+        File.ReadAllText(Path.Combine(Env.ContentRootPath, "prompts", "SYSTEM.md"));
+
+    protected override async Task OnInitializedAsync()
     {
-        statefulMessageCount = 0;
+        var state = await AuthState.GetAuthenticationStateAsync();
+        userId = state.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
         messages.Add(new(ChatRole.System, SystemPrompt));
-        chatOptions.Tools = [
-            AIFunctionFactory.Create(LoadDocumentsAsync),
-            AIFunctionFactory.Create(SearchAsync),
-        ];
     }
 
     private async Task AddUserMessageAsync(ChatMessage userMessage)
     {
-        CancelAnyCurrentResponse();
+        if (string.IsNullOrWhiteSpace(userId)) return;
 
+        CancelAnyCurrentResponse();
+        await EnsureConversationAsync();
+
+        var question = userMessage.Text ?? string.Empty;
         messages.Add(userMessage);
+        await Store.AppendAsync(conversationId!.Value, userId, "user", question);
+
         chatSuggestions?.Clear();
+        status = null;
         await chatInput!.FocusAsync();
 
-        // Stream and display a new response from the IChatClient
+        // Retrieval and model selection are independent; overlap them.
+        var modelTask = Router.PickChatModelAsync(question);
+        var hitsTask = attachedFileName is null
+            ? Task.FromResult<IReadOnlyList<IngestedChunk>>([])
+            : Search.SearchAsync(question, userId, attachedFileName, maxResults: 6);
+
+        await Task.WhenAll(modelTask, hitsTask);
+
+        var model = await modelTask;
+        var prompt = BuildPrompt(question, await hitsTask);
+
         var responseText = new TextContent("");
         currentResponseMessage = new ChatMessage(ChatRole.Assistant, [responseText]);
         currentResponseCancellation = new();
-        await foreach (var update in ChatClient.GetStreamingResponseAsync(messages.Skip(statefulMessageCount), chatOptions, currentResponseCancellation.Token))
+
+        var outgoing = messages.ToList();
+        outgoing[^1] = new ChatMessage(ChatRole.User, prompt);
+
+        var chatClient = CreateChatClient(model);
+        await foreach (var update in chatClient.GetStreamingResponseAsync(
+            outgoing, cancellationToken: currentResponseCancellation.Token))
         {
-            messages.AddMessages(update, filter: c => c is not TextContent);
             responseText.Text += update.Text;
-            chatOptions.ConversationId = update.ConversationId;
             ChatMessageItem.NotifyChanged(currentResponseMessage);
         }
 
-        // Store the final response in the conversation, and begin getting suggestions
         messages.Add(currentResponseMessage!);
-        statefulMessageCount = chatOptions.ConversationId is not null ? messages.Count : 0;
         currentResponseMessage = null;
+
+        if (!string.IsNullOrWhiteSpace(responseText.Text))
+        {
+            await Store.AppendAsync(conversationId!.Value, userId, "assistant", responseText.Text);
+            await MaybeGenerateTitleAsync(question, responseText.Text);
+        }
+
+        await sidebar!.ReloadAsync();
         chatSuggestions?.Update(messages);
+    }
+
+    private static string BuildPrompt(string question, IReadOnlyList<IngestedChunk> hits)
+    {
+        if (hits.Count == 0) return question;
+
+        var context = string.Join("\n", hits.Select(h =>
+            $"<result filename=\"{h.DocumentId}\">{h.Text}</result>"));
+
+        return $"""
+            Answer using only the excerpts below. If they do not contain the answer, say so plainly.
+
+            <context>
+            {context}
+            </context>
+
+            Question: {question}
+            """;
+    }
+
+    private OpenAIClient CreateClient()
+    {
+        var config = Config.GetSection("OpenRouter");
+        return new OpenAIClient(
+            new ApiKeyCredential(config["ApiKey"]!),
+            new OpenAIClientOptions { Endpoint = new Uri(config["BaseUrl"]!) });
+    }
+
+    private IChatClient CreateChatClient(string model)
+    {
+#pragma warning disable OPENAI001, MEAI001
+        return CreateClient().GetResponsesClient().AsIChatClient(model);
+#pragma warning restore OPENAI001, MEAI001
+    }
+
+    private async Task UploadAsync(IBrowserFile file)
+    {
+        if (string.IsNullOrWhiteSpace(userId)) return;
+
+        try
+        {
+            status = $"Reading {file.Name}…";
+            await using var stream = file.OpenReadStream(maxAllowedSize: 25 * 1024 * 1024);
+            attachedFileName = await Documents.SaveAndIngestAsync(stream, file.Name, userId);
+            status = $"Ready — ask anything about {attachedFileName}.";
+        }
+        catch (Exception ex)
+        {
+            status = $"Could not read that file: {ex.Message}";
+        }
+    }
+
+    private async Task EnsureConversationAsync()
+    {
+        if (conversationId is not null) return;
+        var created = await Store.CreateAsync(userId);
+        conversationId = created.Id;
+        title = created.Title;
+    }
+
+    private async Task MaybeGenerateTitleAsync(string question, string answer)
+    {
+        if (title is not null && title != "New chat") return;
+
+        var fallback = question.Length > 60 ? question[..60] : question;
+        var generated = fallback;
+
+        try
+        {
+            var lightModel = Config["OpenRouter:LightModel"]!;
+            var client = CreateChatClient(lightModel);
+            var response = await client.GetResponseAsync(
+                $"Give a 3-5 word title for a conversation that starts with: {question}");
+            var candidate = response.Text?.Trim().Trim('"', '.', '\n');
+            if (!string.IsNullOrWhiteSpace(candidate) && candidate.Length <= 60)
+                generated = candidate;
+        }
+        catch
+        {
+            // Title generation is cosmetic; fall back to the question text.
+        }
+
+        title = generated;
+        await Store.RenameAsync(conversationId!.Value, userId, generated);
+    }
+
+    private async Task SelectConversationAsync(Guid id)
+    {
+        if (string.IsNullOrWhiteSpace(userId) || id == conversationId) return;
+
+        CancelAnyCurrentResponse();
+        chatSuggestions?.Clear();
+
+        var rows = await Store.LoadMessagesAsync(id, userId);
+        var list = await Store.ListAsync(userId);
+        var summary = list.FirstOrDefault(c => c.Id == id);
+
+        messages.Clear();
+        messages.Add(new(ChatRole.System, SystemPrompt));
+        foreach (var row in rows)
+        {
+            messages.Add(new ChatMessage(
+                row.Role == "assistant" ? ChatRole.Assistant : ChatRole.User, row.Text));
+        }
+
+        conversationId = id;
+        title = summary?.Title;
+        status = null;
+        await sidebar!.ReloadAsync();
+        await chatInput!.FocusAsync();
     }
 
     private void CancelAnyCurrentResponse()
     {
-        if (currentResponseMessage is not null)
-        {
-            messages.Add(currentResponseMessage);
-        }
-
+        if (currentResponseMessage is not null) messages.Add(currentResponseMessage);
         currentResponseCancellation?.Cancel();
         currentResponseMessage = null;
     }
@@ -88,30 +248,14 @@
         CancelAnyCurrentResponse();
         messages.Clear();
         messages.Add(new(ChatRole.System, SystemPrompt));
-        chatOptions.ConversationId = null;
-        statefulMessageCount = 0;
+        conversationId = null;
+        title = null;
+        attachedFileName = null;
+        status = null;
         chatSuggestions?.Clear();
-        await chatInput!.FocusAsync();
+        if (sidebar is not null) await sidebar.ReloadAsync();
+        if (chatInput is not null) await chatInput.FocusAsync();
     }
 
-    [Description("Loads the documents needed for performing searches. Must be completed before a search can be executed, but only needs to be completed once.")]
-    private async Task LoadDocumentsAsync()
-    {
-        await InvokeAsync(StateHasChanged);
-        await Search.LoadDocumentsAsync();
-    }
-
-    [Description("Searches for information using a phrase or keyword. Relies on documents already being loaded.")]
-    private async Task<IEnumerable<string>> SearchAsync(
-        [Description("The phrase to search for.")] string searchPhrase,
-        [Description("If possible, specify the filename to search that file only. If not provided or empty, the search includes all files.")] string? filenameFilter = null)
-    {
-        await InvokeAsync(StateHasChanged);
-        var results = await Search.SearchAsync(searchPhrase, filenameFilter, maxResults: 5);
-        return results.Select(result =>
-            $"<result filename=\"{result.DocumentId}\">{result.Text}</result>");
-    }
-
-    public void Dispose()
-        => currentResponseCancellation?.Cancel();
+    public void Dispose() => currentResponseCancellation?.Cancel();
 }

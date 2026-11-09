@@ -2,12 +2,23 @@
 
 <EditForm Model="@this" OnValidSubmit="@SendMessageAsync">
     <label class="input-box page-width">
-        <textarea @ref="@textArea" @bind="@messageText" placeholder="Type your message..." rows="1"></textarea>
+        <textarea @ref="@textArea" @bind="@messageText"
+                  placeholder="@(AttachedFile is null ? "Ask about your documents…" : $"Ask about {AttachedFile}…")"
+                  rows="1"></textarea>
 
         <div class="tools">
-            <button type="submit" title="Send" class="send-button">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="tool-icon">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
+            <label class="attach" title="Attach a document">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                          d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13" />
+                </svg>
+                <InputFile OnChange="OnFileChange" accept=".pdf,.md,.docx,.xlsx" aria-label="Attach a document" />
+            </label>
+
+            <button type="submit" title="Send" class="send-button" aria-label="Send message">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                          d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
                 </svg>
             </button>
         </div>
@@ -18,11 +29,11 @@
     private ElementReference textArea;
     private string? messageText;
 
-    [Parameter]
-    public EventCallback<ChatMessage> OnSend { get; set; }
+    [Parameter] public EventCallback<ChatMessage> OnSend { get; set; }
+    [Parameter] public EventCallback<IBrowserFile> OnFileSelected { get; set; }
+    [Parameter] public string? AttachedFile { get; set; }
 
-    public ValueTask FocusAsync()
-        => textArea.FocusAsync();
+    public ValueTask FocusAsync() => textArea.FocusAsync();
 
     private async Task SendMessageAsync()
     {
@@ -33,13 +44,17 @@
         }
     }
 
+    private async Task OnFileChange(InputFileChangeEventArgs args)
+        => await OnFileSelected.InvokeAsync(args.File);
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
             try
             {
-                var module = await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/Chat/ChatInput.razor.js");
+                var module = await JS.InvokeAsync<IJSObjectReference>(
+                    "import", "./Components/Pages/Chat/ChatInput.razor.js");
                 await module.InvokeVoidAsync("init", textArea);
                 await module.DisposeAsync();
             }

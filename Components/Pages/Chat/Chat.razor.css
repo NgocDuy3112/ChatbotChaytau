@@ -1,11 +1,55 @@
-.chat-container {
-    position: sticky; 
-    bottom: 0; 
-    padding-left: 1.5rem;
-    padding-right: 1.5rem; 
-    padding-top: 0.75rem; 
-    padding-bottom: 1.5rem; 
-    border-top-width: 1px; 
-    background-color: #F3F4F6; 
-    border-color: #E5E7EB;
+.app-shell {
+    display: grid;
+    grid-template-columns: 264px minmax(0, 1fr);
+    height: 100dvh;
+    overflow: hidden;
 }
+
+.chat-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    height: 100dvh;
+    overflow: hidden;
+}
+
+.chat-container {
+    flex: none;
+    padding: var(--space-3) var(--space-5) var(--space-4);
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+}
+
+@media (max-width: 900px) {
+    .app-shell {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .app-shell > ::deep .sidebar { display: none; }
+
+    .chat-container { padding-inline: var(--space-3); }
+}
+
+.status {
+    max-width: var(--content-width);
+    margin: 0 auto var(--space-2);
+    font-size: .8125rem;
+    color: var(--text-muted);
+}
+
+.empty-state {
+    text-align: center;
+    max-width: 26rem;
+}
+
+    .empty-state h2 {
+        margin: 0 0 var(--space-2);
+        font-size: 1.25rem;
+        color: var(--text);
+    }
+
+    .empty-state p {
+        margin: 0;
+        font-size: .9375rem;
+        color: var(--text-muted);
+    }
