@@ -1,14 +1,19 @@
+using System.Security.Claims;
+using chatbotchaytau.Services.Documents;
+
 namespace chatbotchaytau.Extensions;
 
 public static class DocumentEndpointExtensions
 {
     public static IEndpointRouteBuilder MapDocumentEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/documents/{name}", (string name, IWebHostEnvironment env) =>
+        app.MapGet("/documents/{name}", (string name, ClaimsPrincipal user, IWebHostEnvironment env) =>
         {
-            var safe = Path.GetFileName(name);
-            var path = Path.Combine(env.ContentRootPath, "App_Data", "documents", safe);
-            if (!File.Exists(path)) return Results.NotFound();
+            // Files live under App_Data/documents/{ownerId}/{name}; resolve
+            // strictly inside the caller's own directory (see DocumentPaths).
+            var ownerId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+            var path = DocumentPaths.Resolve(env.ContentRootPath, ownerId, name);
+            if (path is null || !File.Exists(path)) return Results.NotFound();
 
             var type = Path.GetExtension(path).ToLowerInvariant() switch
             {

@@ -126,3 +126,18 @@
     border-left: 3px solid var(--border-strong);
     color: var(--text-muted);
 }
+
+.message-images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.message-images img {
+    max-width: 140px;
+    max-height: 140px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+}

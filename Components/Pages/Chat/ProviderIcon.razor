@@ -1,0 +1,33 @@
+@using chatbotchaytau.Services
+
+@if (ModelId is null)
+{
+    <svg class="provider-icon provider-auto" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 2.5l2.4 6.1 6.1 2.4-6.1 2.4L12 19.5l-2.4-6.1L3.5 11l6.1-2.4z" />
+    </svg>
+}
+else
+{
+    var provider = ProviderIcons.ProviderOf(ModelId);
+    var icon = ProviderIcons.TryGet(provider);
+
+    if (icon is not null)
+    {
+        <svg class="provider-icon" viewBox="0 0 24 24" aria-hidden="true"
+             style="--brand:@icon.Value.BrandColor">
+            <path d="@icon.Value.SvgPath" />
+        </svg>
+    }
+    else
+    {
+        var letterSource = provider.Length > 0 ? provider : ModelId;
+        <span class="provider-mono" style="--brand:var(--accent)" aria-hidden="true">
+            @char.ToUpperInvariant(letterSource[0])
+        </span>
+    }
+}
+
+@code {
+    /// <summary>Model id whose provider mark to show; null renders the Auto spark.</summary>
+    [Parameter] public string? ModelId { get; set; }
+}

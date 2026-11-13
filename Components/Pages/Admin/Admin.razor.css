@@ -1,0 +1,209 @@
+.admin-page {
+    max-width: var(--page-width);
+    margin: 0 auto;
+    padding: var(--space-5) var(--space-4) var(--space-8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+}
+
+.admin-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+    .admin-head h1 {
+        margin: 0;
+        font-size: 1.25rem;
+        letter-spacing: -0.01em;
+    }
+
+.admin-sub {
+    margin: 4px 0 0;
+    font-size: .8125rem;
+    color: var(--text-muted);
+}
+
+.admin-refresh {
+    padding: 7px 14px;
+    font: inherit;
+    font-size: .8125rem;
+    font-weight: 500;
+    color: var(--accent-contrast);
+    background: var(--accent);
+    border: 0;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+    .admin-refresh:hover { background: var(--accent-hover); }
+    .admin-refresh:disabled { opacity: .6; cursor: default; }
+
+.admin-muted {
+    color: var(--text-muted);
+    font-size: .875rem;
+}
+
+.admin-note {
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    font-size: .8125rem;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--accent);
+    border-radius: var(--radius-sm);
+}
+
+    .admin-note code { font-family: var(--font-mono); font-size: .78em; }
+
+/* --- stat cards --------------------------------------------------------- */
+
+.stat-cards {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-3);
+}
+
+.stat-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: var(--space-3) var(--space-4);
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.stat-label {
+    font-size: .75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--text-muted);
+}
+
+.stat-value {
+    font-size: 1.375rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+/* --- sections & tables -------------------------------------------------- */
+
+.admin-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+    .admin-section h2 {
+        margin: 0;
+        font-size: .9375rem;
+        font-weight: 600;
+    }
+
+.table-scroll { overflow-x: auto; }
+
+.admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .8125rem;
+}
+
+    .admin-table th,
+    .admin-table td {
+        padding: 7px 10px;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+        white-space: nowrap;
+    }
+
+    .admin-table th {
+        font-size: .72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+        color: var(--text-muted);
+    }
+
+    .admin-table .num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .admin-table .mono {
+        font-family: var(--font-mono);
+        font-size: .78rem;
+        max-width: 22rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+.bar-cell { width: 30%; }
+
+.bar {
+    display: block;
+    height: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+}
+
+    .bar > span {
+        display: block;
+        height: 100%;
+        min-width: 2px;
+        background: var(--accent);
+    }
+
+/* --- failures ----------------------------------------------------------- */
+
+.failure-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+    .failure-list li {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        padding: 8px 10px;
+        font-size: .8125rem;
+        background: var(--danger-surface);
+        border: 1px solid var(--danger-border);
+        border-radius: var(--radius-sm);
+        color: var(--danger);
+    }
+
+.failure-when {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.failure-where { font-family: var(--font-mono); font-size: .76rem; }
+
+.failure-what {
+    flex: 1;
+    min-width: 12rem;
+    overflow-wrap: anywhere;
+}
+
+/* --- responsive --------------------------------------------------------- */
+
+@media (max-width: 900px) {
+    .stat-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+    .admin-page { padding-inline: var(--space-3); }
+}
+
+@media (max-width: 520px) {
+    .stat-cards { grid-template-columns: minmax(0, 1fr); }
+}

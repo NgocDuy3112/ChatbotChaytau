@@ -28,3 +28,137 @@ chat-messages > ::deep div:last-of-type {
 @media (max-width: 900px) {
     .message-list-container { padding-inline: var(--space-3); }
 }
+
+/* --- Copilot-style process panel -------------------------------------- */
+
+.in-progress-block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.process-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: fit-content;
+    min-width: 240px;
+    padding: 8px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--accent);
+    border-radius: var(--radius-sm);
+    animation: process-in 160ms var(--ease);
+}
+
+@keyframes process-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.process-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: .8125rem;
+    color: var(--text-muted);
+}
+
+.process-step.is-current {
+    color: var(--text);
+    font-weight: 500;
+}
+
+.process-check {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    color: var(--accent);
+}
+
+.process-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    width: 13px;
+    height: 13px;
+    flex: none;
+}
+
+.process-dots i {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: dot-wave 1.2s ease-in-out infinite;
+}
+
+.process-dots i:nth-child(2) { animation-delay: .15s; }
+.process-dots i:nth-child(3) { animation-delay: .3s; }
+
+@keyframes dot-wave {
+    0%, 60%, 100% { transform: translateY(0); opacity: .4; }
+    30% { transform: translateY(-3px); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .process-panel { animation: none; }
+    .process-dots i { animation: none; opacity: .7; }
+}
+
+@media (max-width: 600px) {
+    .process-panel { min-width: 0; width: 100%; }
+}
+
+/* --- Agent plan checklist (live harness state) ------------------------- */
+
+.agent-plan {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: fit-content;
+    min-width: 240px;
+    max-width: 100%;
+    padding: 8px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--accent);
+    border-radius: var(--radius-sm);
+    animation: process-in 160ms var(--ease);
+}
+
+.agent-mode {
+    font-size: .7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--accent);
+    margin-bottom: 2px;
+}
+
+.agent-todo {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: .8125rem;
+    color: var(--text-muted);
+}
+
+.agent-todo.is-done .todo-title {
+    text-decoration: line-through;
+    opacity: .65;
+}
+
+.todo-mark {
+    flex: none;
+    width: 13px;
+    text-align: center;
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.todo-title { overflow-wrap: anywhere; }
+
+@media (max-width: 600px) {
+    .agent-plan { min-width: 0; width: 100%; }
+}

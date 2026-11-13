@@ -10,14 +10,23 @@ public class DocumentService(
 {
     private static readonly HashSet<string> AllowedExtensions = [".pdf", ".md", ".docx", ".xlsx"];
 
+    /// <summary>True if the file name (after stripping any path) has an allowed extension.</summary>
+    internal static bool IsSupportedFileName(string fileName)
+    {
+        var extension = Path.GetExtension(Path.GetFileName(fileName)).ToLowerInvariant();
+        return AllowedExtensions.Contains(extension);
+    }
+
     public async Task<string> SaveAndIngestAsync(
         Stream content, string fileName, string ownerId, CancellationToken ct = default)
     {
         var safeName = Path.GetFileName(fileName);
-        var extension = Path.GetExtension(safeName).ToLowerInvariant();
 
-        if (!AllowedExtensions.Contains(extension))
+        if (!IsSupportedFileName(safeName))
+        {
+            var extension = Path.GetExtension(safeName).ToLowerInvariant();
             throw new InvalidOperationException($"Unsupported file type '{extension}'.");
+        }
 
         var directory = Path.Combine(env.ContentRootPath, "App_Data", "documents", ownerId);
         Directory.CreateDirectory(directory);

@@ -1,0 +1,219 @@
+@page "/admin"
+@attribute [Authorize(Roles = "Admin")]
+@inject IUsageReport Report
+
+<PageTitle>Admin · usage &amp; cost</PageTitle>
+
+<div class="admin-page">
+    <header class="admin-head">
+        <div>
+            <h1>Usage &amp; cost</h1>
+            <p class="admin-sub">last @Days days · UTC</p>
+        </div>
+        <button type="button" class="admin-refresh" @onclick="LoadAsync" disabled="@loading">
+            @(loading ? "Refreshing…" : "Refresh")
+        </button>
+    </header>
+
+    @if (overview is null)
+    {
+        <p class="admin-muted">@(loadError ?? "Loading…")</p>
+    }
+    else if (overview.Requests == 0)
+    {
+        <p class="admin-muted">No calls recorded yet — ask a question in the chat and come back.</p>
+    }
+    else
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+        var todayStat = overview.ByDay.LastOrDefault(d => d.Day == today);
+
+        <section class="stat-cards">
+            <div class="stat-card">
+                <span class="stat-label">Cost today</span>
+                <span class="stat-value">@Money(todayStat?.Cost ?? 0m)</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">Requests</span>
+                <span class="stat-value">@overview.Requests</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">Tokens</span>
+                <span class="stat-value">@Tokens(overview.PromptTokens + overview.CompletionTokens)</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">Active users</span>
+                <span class="stat-value">@overview.DistinctUsers</span>
+            </div>
+        </section>
+
+        @if (overview.UnpricedRequests > 0)
+        {
+            <p class="admin-note">
+                @overview.UnpricedRequests call(s) have no pricing entry — their cost is excluded
+                (add the model to <code>OpenRouter:Pricing</code>).
+            </p>
+        }
+
+        <section class="admin-section">
+            <h2>By model</h2>
+            <div class="table-scroll">
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Model</th><th class="num">Requests</th><th class="num">Prompt</th>
+                            <th class="num">Completion</th><th class="num">Cost</th><th>Share</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var m in overview.ByModel)
+                        {
+                            var pct = overview.Cost > 0
+                                ? Math.Min(100, (double)(m.Cost / overview.Cost) * 100)
+                                : 0;
+                            <tr>
+                                <td class="mono">@m.Model</td>
+                                <td class="num">@m.Requests</td>
+                                <td class="num">@Tokens(m.PromptTokens)</td>
+                                <td class="num">@Tokens(m.CompletionTokens)</td>
+                                <td class="num">@Money(m.Cost)</td>
+                                <td class="bar-cell">
+                                    <span class="bar"><span style="width:@BarWidth(pct)"></span></span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="admin-section">
+            <h2>By day</h2>
+            <div class="table-scroll">
+                <table class="admin-table">
+                    <thead>
+                        <tr><th>Day (UTC)</th><th class="num">Requests</th><th class="num">Tokens</th><th class="num">Cost</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var d in overview.ByDay)
+                        {
+                            <tr>
+                                <td>@d.Day.ToString("yyyy-MM-dd")</td>
+                                <td class="num">@d.Requests</td>
+                                <td class="num">@Tokens(d.PromptTokens)</td>
+                                <td class="num">@Money(d.Cost)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="admin-section">
+            <h2>By mode</h2>
+            <div class="table-scroll">
+                <table class="admin-table">
+                    <thead>
+                        <tr><th>Mode</th><th class="num">Requests</th><th class="num">Cost</th><th class="num">Errors</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var m in overview.ByMode)
+                        {
+                            <tr>
+                                <td class="mono">@m.Mode</td>
+                                <td class="num">@m.Requests</td>
+                                <td class="num">@Money(m.Cost)</td>
+                                <td class="num">@m.Errors</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="admin-section">
+            <h2>Top users</h2>
+            <div class="table-scroll">
+                <table class="admin-table">
+                    <thead>
+                        <tr><th>User</th><th class="num">Requests</th><th class="num">Cost</th><th>Last seen</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var u in overview.TopUsers)
+                        {
+                            <tr>
+                                <td title="@u.UserId">@(u.Email ?? u.UserId)</td>
+                                <td class="num">@u.Requests</td>
+                                <td class="num">@Money(u.Cost)</td>
+                                <td>@When(u.LastSeen)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="admin-section">
+            <h2>Recent failures (@overview.Errors total)</h2>
+            @if (overview.RecentFailures.Count == 0)
+            {
+                <p class="admin-muted">None in this window.</p>
+            }
+            else
+            {
+                <ul class="failure-list">
+                    @foreach (var f in overview.RecentFailures)
+                    {
+                        <li>
+                            <span class="failure-when">@When(f.Timestamp)</span>
+                            <span class="mono failure-where">@f.Mode/@f.Model</span>
+                            <span class="failure-what">@f.Error</span>
+                        </li>
+                    }
+                </ul>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private const int Days = 14;
+
+    private AdminOverview? overview;
+    private bool loading;
+    private string? loadError;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        loadError = null;
+        try
+        {
+            overview = await Report.GetAsync(Days);
+        }
+        catch (Exception ex)
+        {
+            loadError = $"Could not load the report: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private static string Money(decimal usd) => usd == 0 ? "—" : $"${usd:0.####}";
+
+    private static string Tokens(long n) => n switch
+    {
+        >= 1_000_000 => $"{n / 1_000_000d:0.#}M",
+        >= 1_000 => $"{n / 1_000d:0.#}k",
+        _ => n.ToString(),
+    };
+
+    private static string BarWidth(double pct) => $"{pct:0.#}%";
+
+    private static string When(DateTimeOffset ts) =>
+        ts.ToUniversalTime().ToString("MMM dd HH:mm");
+}

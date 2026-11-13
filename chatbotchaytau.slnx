@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/tests/">
+    <Project Path="tests/chatbotchaytau.Tests/chatbotchaytau.Tests.csproj" />
+  </Folder>
+  <Project Path="chatbotchaytau.csproj" />
+</Solution>

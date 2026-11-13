@@ -42,6 +42,58 @@ function getPropertyDescriptor(target, propertyName) {
         || getPropertyDescriptor(Object.getPrototypeOf(target), propertyName);
 }
 
+// --- Voice input (Web Speech API) ---------------------------------------
+
+let recognition = null;
+let committedTranscript = '';
+
+export function supportsVoice() {
+    return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+}
+
+export function startVoice(dotnetRef, lang, initialText) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return false;
+
+    stopVoice();
+    committedTranscript = initialText ? initialText + ' ' : '';
+
+    recognition = new SpeechRecognition();
+    recognition.lang = lang;
+    recognition.interimResults = true;
+    recognition.continuous = true;
+
+    recognition.onresult = (event) => {
+        let interim = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            const result = event.results[i];
+            if (result.isFinal) {
+                committedTranscript += result[0].transcript + ' ';
+            } else {
+                interim += result[0].transcript;
+            }
+        }
+        dotnetRef.invokeMethodAsync('OnVoiceTranscript', committedTranscript + interim);
+    };
+    recognition.onerror = (event) =>
+        dotnetRef.invokeMethodAsync('OnVoiceError', event.error || 'unknown');
+    recognition.onend = () => dotnetRef.invokeMethodAsync('OnVoiceEnd');
+
+    try {
+        recognition.start();
+    } catch {
+        recognition = null;
+        return false;
+    }
+    return true;
+}
+
+export function stopVoice() {
+    if (recognition) {
+        try { recognition.stop(); } catch { /* already stopped */ }
+    }
+}
+
 // SIG // Begin signature block
 // SIG // MIInNgYJKoZIhvcNAQcCoIInJzCCJyMCAQExDzANBglg
 // SIG // hkgBZQMEAgEFADB3BgorBgEEAYI3AgEEoGkwZzAyBgor

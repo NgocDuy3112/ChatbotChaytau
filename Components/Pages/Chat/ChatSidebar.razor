@@ -2,7 +2,7 @@
 @inject IConversationStore Store
 @inject AuthenticationStateProvider AuthState
 
-<aside class="sidebar">
+<aside class="sidebar @(Open ? "is-open" : null)">
     <div class="sidebar-head">
         <button class="new-chat" @onclick="OnNewChat">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
@@ -57,6 +57,10 @@
     [Parameter] public Guid? ActiveId { get; set; }
     [Parameter] public EventCallback<Guid> OnSelect { get; set; }
     [Parameter] public EventCallback OnNewChat { get; set; }
+
+    /// <summary>True while the off-canvas drawer is open (mobile only —
+    /// desktop CSS ignores the class).</summary>
+    [Parameter] public bool Open { get; set; }
 
     private string Initial => DisplayName.Length > 0 ? DisplayName[..1].ToUpperInvariant() : "?";
 

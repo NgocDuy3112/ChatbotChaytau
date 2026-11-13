@@ -26,22 +26,32 @@
         white-space: nowrap;
     }
 
-.topbar-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    max-width: 240px;
-    padding: 2px 8px;
-    font-size: .75rem;
-    color: var(--text-muted);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-pill);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+/* Drawer toggle is a mobile-only affordance; desktop shows the fixed sidebar. */
+.sidebar-toggle { display: none; }
+
+@media (max-width: 900px) {
+    .topbar {
+        min-height: 50px;
+        padding-inline: var(--space-3);
+        gap: var(--space-2);
+    }
+
+    .topbar-title h1 { font-size: .9375rem; }
+
+    .sidebar-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        margin-left: -8px;
+        color: var(--text);
+        background: transparent;
+        border: 0;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+    }
+
+    .sidebar-toggle:hover { background: var(--surface); }
+    .sidebar-toggle svg { width: 1.25rem; height: 1.25rem; }
 }
-
-    .topbar-chip svg { width: .875rem; height: .875rem; flex: none; }
-
-.btn-default svg { width: .875rem; height: .875rem; }

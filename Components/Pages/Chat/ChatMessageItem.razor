@@ -5,6 +5,15 @@
 @if (Message.Role == ChatRole.User)
 {
     <div class="user-message">
+        @if (imageSources.Count > 0)
+        {
+            <div class="message-images">
+                @foreach (var src in imageSources)
+                {
+                    <img src="@src" alt="Attached image" loading="lazy" />
+                }
+            </div>
+        }
         @Message.Text
     </div>
 }
@@ -72,6 +81,7 @@ else if (Message.Role == ChatRole.Assistant)
     private static readonly Regex CitationRegex = new(@"<citation filename='(?<file>[^']*)'>(?<quote>.*?)</citation>", RegexOptions.NonBacktracking);
 
     private List<(string File, string Quote)>? citations;
+    private List<string> imageSources = [];
 
     [Parameter, EditorRequired]
     public required ChatMessage Message { get; set; }
@@ -79,9 +89,22 @@ else if (Message.Role == ChatRole.Assistant)
     [Parameter]
     public bool InProgress { get; set;}
 
+    /// <summary>Per-token counter from the stream loop. Never read — its value
+    /// changing is what forces this component to re-render each token, since
+    /// the mutated Message instance alone trips Blazor's reference-equality
+    /// parameter skip and the markdown attribute would never repaint.</summary>
+    [Parameter]
+    public int StreamVersion { get; set; }
+
     protected override void OnInitialized()
     {
         SubscribersLookup.AddOrUpdate(Message, this);
+
+        imageSources = Message.Contents
+            .OfType<DataContent>()
+            .Where(c => c.MediaType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) == true)
+            .Select(c => c.Uri ?? $"data:{c.MediaType};base64,{Convert.ToBase64String(c.Data.Span)}")
+            .ToList();
 
         if (!InProgress && Message.Role == ChatRole.Assistant && Message.Text is { Length: > 0 } text)
         {

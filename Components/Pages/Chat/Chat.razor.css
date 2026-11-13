@@ -20,12 +20,34 @@
     background: var(--bg);
 }
 
+/* Backdrop is a mobile-drawer concept; never shown on desktop. */
+.sidebar-backdrop { display: none; }
+
 @media (max-width: 900px) {
     .app-shell {
         grid-template-columns: minmax(0, 1fr);
     }
 
-    .app-shell > ::deep .sidebar { display: none; }
+    /* Sidebar becomes an off-canvas drawer opened via the top-bar toggle. */
+    .app-shell > ::deep .sidebar {
+        position: fixed;
+        inset: 0 auto 0 0;
+        z-index: 80;
+        width: min(300px, 86vw);
+        transform: translateX(-100%);
+        transition: transform var(--dur) var(--ease);
+        box-shadow: var(--shadow-md);
+    }
+
+    .app-shell > ::deep .sidebar.is-open { transform: translateX(0); }
+
+    .sidebar-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 70;
+        background: rgb(0 0 0 / 0.45);
+    }
 
     .chat-container { padding-inline: var(--space-3); }
 }

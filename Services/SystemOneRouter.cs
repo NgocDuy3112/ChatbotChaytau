@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace chatbotchaytau.Services;
 
-public class SystemOneRouter(HttpClient http, IConfiguration config)
+public class SystemOneRouter(HttpClient http, IConfiguration config, ILogger<SystemOneRouter> logger)
 {
     private readonly string _apiKey = config["OpenRouter:ApiKey"] ?? throw new InvalidOperationException("Missing configuration: OpenRouter:ApiKey");
 
@@ -18,7 +18,7 @@ public class SystemOneRouter(HttpClient http, IConfiguration config)
         var body = new
         {
             model = _systemOneModel,
-            state = new { message = userMessage },
+            state = userMessage,
             questions = new Dictionary<string, object>
             {
                 ["tier"] = new
@@ -29,7 +29,7 @@ public class SystemOneRouter(HttpClient http, IConfiguration config)
                     {
                         ["light"] = "Simple Q&A, short answers, no reasoning.",
                         ["moderate"] = "Moderate tasks, some explanation.",
-                        ["strong"] = "Deep reasoning, multi-step analysis, code generation."
+                        ["strong"] = "Deep reasoning, multi-step analysis."
                     }
                 }
             }
@@ -65,7 +65,7 @@ public class SystemOneRouter(HttpClient http, IConfiguration config)
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // logger.LogWarning(ex, "Model routing failed; falling back to the light tier.");
+            logger.LogWarning(ex, "Model routing failed; falling back to the light tier.");
             return _lightModel;
         }
     }

@@ -9,6 +9,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<ChatMessageRow> ChatMessages => Set<ChatMessageRow>();
     public DbSet<Chunk> Chunks => Set<Chunk>();
+    public DbSet<UsageEvent> UsageEvents => Set<UsageEvent>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -47,6 +48,21 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
             e.HasIndex(c => c.Embedding)
              .HasMethod("hnsw")
              .HasOperators("vector_cosine_ops");
+        });
+
+        builder.Entity<UsageEvent>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(64).IsRequired();
+            e.Property(x => x.Model).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Mode).HasMaxLength(32).IsRequired();
+            e.Property(x => x.Step).HasMaxLength(200);
+            e.Property(x => x.Error).HasMaxLength(500);
+            e.Property(x => x.CostUsd).HasPrecision(18, 8);
+
+            e.HasIndex(x => x.Timestamp);
+            e.HasIndex(x => new { x.UserId, x.Timestamp });
+            e.HasIndex(x => x.Model);
         });
     }
 }

@@ -64,7 +64,7 @@ public class DocumentIngestor(
         return pieces.Count;
     }
 
-    private static List<string> Chunk(string text)
+    internal static List<string> Chunk(string text)
     {
         var chunks = new List<string>();
         if (string.IsNullOrWhiteSpace(text)) return chunks;
@@ -88,6 +88,11 @@ public class DocumentIngestor(
 
             var piece = text.Substring(position, length).Trim();
             if (piece.Length > 0) chunks.Add(piece);
+
+            // The window consumed the end of the text: stop. Without this, the
+            // tail shrinks below OverlapChars and Math.Max(1, ...) below would
+            // slide one character at a time, emitting a sliver chunk per char.
+            if (position + length >= text.Length) break;
 
             position += Math.Max(1, length - OverlapChars);
         }

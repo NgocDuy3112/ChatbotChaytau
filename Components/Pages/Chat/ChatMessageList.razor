@@ -9,8 +9,50 @@
 
         @if (InProgressMessage is not null)
         {
-            <ChatMessageItem Message="@InProgressMessage" InProgress="true" />
-            <LoadingSpinner />
+            <div class="in-progress-block">
+                @if (ProcessSteps is { Count: > 0 })
+                {
+                    <div class="process-panel" role="status" aria-live="polite">
+                        @for (var i = 0; i < ProcessSteps.Count; i++)
+                        {
+                            var isLast = i == ProcessSteps.Count - 1;
+                            <div class="process-step @(isLast ? "is-current" : "is-done")">
+                                @if (isLast)
+                                {
+                                    <span class="process-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                                }
+                                else
+                                {
+                                    <svg class="process-check" viewBox="0 0 24 24" fill="none"
+                                         stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="m5 13 4 4L19 7" />
+                                    </svg>
+                                }
+                                <span class="process-text">@ProcessSteps[i]</span>
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (AgentMode is not null || AgentTodos is { Count: > 0 })
+                {
+                    <div class="agent-plan">
+                        @if (AgentMode is not null)
+                        {
+                            <div class="agent-mode">@ModeLabel(AgentMode)</div>
+                        }
+                        @foreach (var todo in AgentTodos ?? [])
+                        {
+                            <div class="agent-todo @(todo.IsComplete ? "is-done" : null)">
+                                <span class="todo-mark" aria-hidden="true">@(todo.IsComplete ? "✓" : "○")</span>
+                                <span class="todo-title">@todo.Title</span>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <ChatMessageItem Message="@InProgressMessage" InProgress="true" StreamVersion="@StreamVersion" />
+            </div>
         }
         else if (IsEmpty)
         {
@@ -28,6 +70,31 @@
 
     [Parameter]
     public RenderFragment? NoMessagesContent { get; set; }
+
+    /// <summary>Per-token counter forwarded to the in-progress item so it
+    /// re-renders on every stream update — see Chat.razor's stream loop.</summary>
+    [Parameter]
+    public int StreamVersion { get; set; }
+
+    /// <summary>Copilot-style progress steps (Thinking… → Searching… →
+    /// Using tool → Generating) shown above the in-progress reply.</summary>
+    [Parameter]
+    public IReadOnlyList<string>? ProcessSteps { get; set; }
+
+    /// <summary>Live agent todos for the in-progress research run.</summary>
+    [Parameter]
+    public IReadOnlyList<AgentTodo>? AgentTodos { get; set; }
+
+    /// <summary>Harness mode (plan/execute) while it works; null in Ask mode.</summary>
+    [Parameter]
+    public string? AgentMode { get; set; }
+
+    private static string ModeLabel(string mode) => mode.ToLowerInvariant() switch
+    {
+        "plan" => "Planning",
+        "execute" => "Executing",
+        _ => mode,
+    };
 
     private bool IsEmpty => !Messages.Any(m => (m.Role == ChatRole.User || m.Role == ChatRole.Assistant) && !string.IsNullOrEmpty(m.Text));
 

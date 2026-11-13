@@ -1,9 +1,31 @@
 ﻿@inherits LayoutComponentBase
 
-@Body
+<ErrorBoundary @ref="errorBoundary">
+    <ChildContent>
+        @Body
+    </ChildContent>
+    <ErrorContent>
+        <div class="blazor-error-boundary">
+            Something went wrong while rendering this page.
+            <button type="button" @onclick="Recover">Try again</button>
+        </div>
+    </ErrorContent>
+</ErrorBoundary>
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>
+
+@code {
+    private ErrorBoundary? errorBoundary;
+
+    protected override void OnParametersSet()
+    {
+        // Clear a previously shown error whenever navigation supplies new parameters.
+        errorBoundary?.Recover();
+    }
+
+    private void Recover() => errorBoundary?.Recover();
+}

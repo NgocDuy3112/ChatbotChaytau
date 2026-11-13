@@ -1,0 +1,36 @@
+/* Scoped to ProviderIcon itself — the earlier attempt styled these from
+   ChatInput via MarkupString output, which never receives the scope
+   attribute, so the rules silently missed and SVGs fell back to the
+   browser default 300x150 size. */
+
+.provider-icon {
+    width: 13px;
+    height: 13px;
+    flex: 0 0 auto;
+}
+
+/* Deepened in light mode / lifted in dark mode: keeps the smaller marks
+   legible and stops near-black brands (OpenAI, Anthropic) vanishing. */
+.provider-icon path {
+    fill: light-dark(color-mix(in srgb, var(--brand) 85%, #000000),
+                     color-mix(in srgb, var(--brand) 70%, #ffffff));
+}
+
+/* The Auto spark is not a brand mark — theme color, no brand. */
+svg.provider-auto path { fill: currentColor; }
+
+.provider-mono {
+    flex: 0 0 auto;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 8px;
+    font-weight: 800;
+    line-height: 1;
+    background: color-mix(in srgb, var(--brand) 24%, transparent);
+    color: light-dark(color-mix(in srgb, var(--brand) 85%, #000000),
+                      color-mix(in srgb, var(--brand) 70%, #ffffff));
+}

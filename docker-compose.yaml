@@ -3,25 +3,27 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: localhost/chatbotchaytau:local
-    pull_policy: build
     container_name: chatbotchaytau-app
     restart: unless-stopped
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     env_file:
       - .env
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
       Database__AutoMigrate: "true"
+      Redis__Enabled: "true"
+      Redis__ConnectionString: redis:6379
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
     ports:
       - "8080:8080"
 
   postgres:
     image: docker.io/pgvector/pgvector:pg17
-    container_name: chatbotchaytau-pg
+    container_name: chatbotchaytau-postgresql
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -30,9 +32,25 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./databases/postgresql:/var/lib/postgresql/data
+      - chatbotchaytau-postgresql:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
+      retries: 10
+
+volumes:
+  chatbotchaytau-postgresql:
+    external: true
+
+  redis:
+    image: docker.io/redis:7-alpine
+    container_name: chatbotchaytau-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
       retries: 10

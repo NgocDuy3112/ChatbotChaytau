@@ -1,10 +1,28 @@
 @inject IJSRuntime JS
+@inject IConfiguration Config
+@implements IAsyncDisposable
 
 <EditForm Model="@this" OnValidSubmit="@SendMessageAsync">
     <label class="input-box page-width">
         <textarea @ref="@textArea" @bind="@messageText"
                   placeholder="@(AttachedFile is null ? "Ask about your documents…" : $"Ask about {AttachedFile}…")"
                   rows="1"></textarea>
+
+        @if (pendingImages.Count > 0)
+        {
+            <div class="image-chips">
+                @for (var i = 0; i < pendingImages.Count; i++)
+                {
+                    var index = i;
+                    <span class="image-chip">
+                        <img src="@pendingImages[index].DataUri" alt="@pendingImages[index].Name" />
+                        <button type="button" class="image-chip-remove" aria-label="Remove image"
+                                @onclick="() => RemoveImage(index)">×</button>
+                    </span>
+                }
+                <span class="image-count">@pendingImages.Count/@MaxImages</span>
+            </div>
+        }
 
         <div class="tools">
             <label class="attach" title="Attach a document">
@@ -14,6 +32,95 @@
                 </svg>
                 <InputFile OnChange="OnFileChange" accept=".pdf,.md,.docx,.xlsx" aria-label="Attach a document" />
             </label>
+
+            <label class="tool-btn" title="Take a photo">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                          d="M4 7h3l2-2h6l2 2h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Z" />
+                    <circle cx="12" cy="13" r="3.5" />
+                </svg>
+                <InputFile OnChange="OnImagesSelected" accept="image/*" capture="environment"
+                           aria-label="Take a photo" />
+            </label>
+
+            <label class="tool-btn" title="Add images (up to 10)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                    <rect x="3" y="4" width="18" height="16" rx="2" />
+                    <circle cx="8.5" cy="9.5" r="1.5" />
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                          d="m4 17 5-5 4 4 3-3 4 4" />
+                </svg>
+                <InputFile OnChange="OnImagesSelected" accept="image/*" multiple
+                           aria-label="Add images" />
+            </label>
+
+            <button type="button" class="tool-btn mic @(listening ? "is-listening" : null)"
+                    title="@(voiceSupported ? (listening ? "Stop listening" : "Voice input (Vietnamese)") : "Voice input needs Chrome or Edge")"
+                    aria-label="Voice input" aria-pressed="@listening"
+                    disabled="@(!voiceSupported)"
+                    @onclick="ToggleVoice">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                          d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" />
+                    <path stroke-linecap="round" d="M5 11v1a7 7 0 0 0 14 0v-1M12 19v3" />
+                </svg>
+            </button>
+
+            <div class="mode-switch" role="group" aria-label="Chat mode">
+                <button type="button" class="mode-option @(Mode == ChatMode.Ask ? "is-active" : null)"
+                        aria-pressed="@(Mode == ChatMode.Ask)"
+                        @onclick="() => SetMode(ChatMode.Ask)">Ask</button>
+                <button type="button" class="mode-option @(Mode == ChatMode.Agent ? "is-active" : null)"
+                        aria-pressed="@(Mode == ChatMode.Agent)"
+                        @onclick="() => SetMode(ChatMode.Agent)">Agent</button>
+            </div>
+
+            <div class="model-picker">
+                <button type="button" class="model-trigger @(menuOpen ? "is-open" : null)"
+                        aria-haspopup="listbox"
+                        aria-expanded="@(menuOpen ? "true" : "false")"
+                        aria-label="Model" title="Model"
+                        @ref="triggerButton"
+                        @onclick="ToggleMenu">
+                    <ProviderIcon ModelId="@PinnedModel" />
+                    <span class="model-trigger-label">@(PinnedModel ?? "Auto")</span>
+                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="2" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+                    </svg>
+                </button>
+
+                @if (menuOpen)
+                {
+                    <div class="model-menu-backdrop" @onclick="CloseMenu"></div>
+                    <ul class="model-menu" role="listbox" aria-label="Model" tabindex="-1"
+                        aria-activedescendant="@($"model-option-{highlightIndex}")"
+                        @ref="menuList"
+                        @onkeydown="OnMenuKeyDown">
+                        <li class="model-item @(highlightIndex == 0 ? "is-active" : null)"
+                            role="option" tabindex="-1" id="model-option-0"
+                            aria-selected="@(PinnedModel is null)"
+                            @onmouseenter="() => highlightIndex = 0"
+                            @onclick="() => SelectAsync(null)">
+                            <ProviderIcon />
+                            <span class="model-item-label">Auto</span>
+                        </li>
+                        @for (var i = 0; i < RenderedModels.Count; i++)
+                        {
+                            var index = i + 1;
+                            var model = RenderedModels[i];
+                            <li class="model-item @(highlightIndex == index ? "is-active" : null)"
+                                role="option" tabindex="-1" id="@($"model-option-{index}")"
+                                aria-selected="@(PinnedModel == model)"
+                                @onmouseenter="() => highlightIndex = index"
+                                @onclick="() => SelectAsync(model)">
+                                <ProviderIcon ModelId="@model" />
+                                <span class="model-item-label">@model</span>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
 
             <button type="submit" title="Send" class="send-button" aria-label="Send message">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
@@ -27,25 +134,295 @@
 
 @code {
     private ElementReference textArea;
+    private ElementReference triggerButton;
+    private ElementReference menuList;
     private string? messageText;
+    private readonly List<string> availableModels = [];
+
+    private bool menuOpen;
+    private int highlightIndex;
+    private bool focusMenuOnNextRender;
+
+    private readonly List<(string Name, string DataUri)> pendingImages = [];
+    private IJSObjectReference? module;
+    private DotNetObjectReference<ChatInput>? selfReference;
+    private bool voiceSupported;
+    private bool listening;
+
+    private const int MaxImages = 10;
+    private const long MaxImageBytes = 5 * 1024 * 1024;
 
     [Parameter] public EventCallback<ChatMessage> OnSend { get; set; }
     [Parameter] public EventCallback<IBrowserFile> OnFileSelected { get; set; }
     [Parameter] public string? AttachedFile { get; set; }
 
+    /// <summary>Null means "Auto" — the router picks the model per message.</summary>
+    [Parameter] public string? PinnedModel { get; set; }
+
+    [Parameter] public EventCallback<string?> PinnedModelChanged { get; set; }
+
+    /// <summary>Active chat behavior (Auto / Ask / Agent), owned by Chat.razor.</summary>
+    [Parameter] public ChatMode Mode { get; set; } = ChatMode.Ask;
+
+    [Parameter] public EventCallback<ChatMode> ModeChanged { get; set; }
+
+    /// <summary>Validation/feedback messages shown by Chat's status line.</summary>
+    [Parameter] public EventCallback<string?> StatusChanged { get; set; }
+
+    private void SetStatus(string? value) => _ = StatusChanged.InvokeAsync(value);
+
+    /// <summary>Configured models, plus the pinned one if config removed it —
+    /// a pin must always have a matching row while it is active.</summary>
+    private List<string> RenderedModels
+    {
+        get
+        {
+            var list = new List<string>(availableModels);
+            if (PinnedModel is not null && !list.Contains(PinnedModel))
+                list.Add(PinnedModel);
+            return list;
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        // The explicit subset from OpenRouter:ChatModels — ordered as configured,
+        // deduped, embedding model never included (it's not a chat choice).
+        var or = Config.GetSection("OpenRouter");
+        foreach (var model in or.GetSection("ChatModels").GetChildren()
+                     .Select(c => c.Value)
+                     .Where(v => !string.IsNullOrWhiteSpace(v))!)
+        {
+            if (!availableModels.Contains(model!))
+                availableModels.Add(model!);
+        }
+
+        // Fallback: no ChatModels configured → derive from the tier models so
+        // the picker is never empty.
+        if (availableModels.Count == 0)
+        {
+            foreach (var key in new[] { "StrongModel", "ModerateModel", "LightModel" })
+            {
+                var model = or[key];
+                if (!string.IsNullOrWhiteSpace(model) && !availableModels.Contains(model))
+                    availableModels.Add(model);
+            }
+        }
+    }
+
+    private void ToggleMenu()
+    {
+        menuOpen = !menuOpen;
+        if (menuOpen)
+        {
+            var models = RenderedModels;
+            highlightIndex = PinnedModel is null
+                ? 0
+                : Math.Max(0, models.IndexOf(PinnedModel)) + 1;
+            focusMenuOnNextRender = true;
+        }
+    }
+
+    private void CloseMenu() => menuOpen = false;
+
+    private async Task SelectAsync(string? model)
+    {
+        await PinnedModelChanged.InvokeAsync(model);
+        menuOpen = false;
+        await triggerButton.FocusAsync();
+    }
+
+    private async Task OnMenuKeyDown(KeyboardEventArgs e)
+    {
+        var models = RenderedModels;
+        var last = models.Count; // index 0 is Auto, so last valid = models.Count
+
+        switch (e.Key)
+        {
+            case "ArrowDown":
+                highlightIndex = Math.Min(highlightIndex + 1, last);
+                break;
+            case "ArrowUp":
+                highlightIndex = Math.Max(highlightIndex - 1, 0);
+                break;
+            case "Home":
+                highlightIndex = 0;
+                break;
+            case "End":
+                highlightIndex = last;
+                break;
+            case "Enter":
+            case " ":
+                await SelectAsync(highlightIndex == 0 ? null : models[highlightIndex - 1]);
+                break;
+            case "Escape":
+                menuOpen = false;
+                await triggerButton.FocusAsync();
+                break;
+        }
+    }
+
     public ValueTask FocusAsync() => textArea.FocusAsync();
 
     private async Task SendMessageAsync()
     {
-        if (messageText is { Length: > 0 } text)
+        var text = messageText;
+        if (string.IsNullOrWhiteSpace(text) && pendingImages.Count == 0) return;
+
+        if (listening && module is not null)
+            await module.InvokeVoidAsync("stopVoice");
+
+        var contents = new List<AIContent> { new TextContent(text ?? string.Empty) };
+        foreach (var image in pendingImages)
         {
-            messageText = null;
-            await OnSend.InvokeAsync(new ChatMessage(ChatRole.User, text));
+            // Our data URIs always look like data:<media-type>;base64,…
+            var mediaType = image.DataUri[5..image.DataUri.IndexOf(';')];
+            contents.Add(new DataContent(image.DataUri, mediaType));
         }
+
+        pendingImages.Clear();
+        messageText = null;
+        await OnSend.InvokeAsync(new ChatMessage(ChatRole.User, contents));
     }
 
     private async Task OnFileChange(InputFileChangeEventArgs args)
         => await OnFileSelected.InvokeAsync(args.File);
+
+    private async Task SetMode(ChatMode value)
+    {
+        if (value != Mode)
+            await ModeChanged.InvokeAsync(value);
+    }
+
+    // --- images (camera + gallery) ------------------------------------
+
+    private async Task OnImagesSelected(InputFileChangeEventArgs e)
+    {
+        var files = e.GetMultipleFiles();
+        var capacity = MaxImages - pendingImages.Count;
+
+        if (capacity <= 0)
+        {
+            SetStatus($"Maximum {MaxImages} images — remove one first.");
+            return;
+        }
+
+        var accepted = 0;
+        foreach (var file in files)
+        {
+            if (accepted >= capacity)
+            {
+                SetStatus($"Only {MaxImages} images allowed — extras were skipped.");
+                break;
+            }
+
+            var mediaType = GuessMediaType(file);
+            if (mediaType is null)
+            {
+                SetStatus($"'{file.Name}' is not a supported image (use PNG, JPEG, WebP or GIF).");
+                continue;
+            }
+
+            try
+            {
+                await using var stream = file.OpenReadStream(MaxImageBytes);
+                using var buffer = new MemoryStream();
+                await stream.CopyToAsync(buffer);
+
+                var dataUri = $"data:{mediaType};base64,{Convert.ToBase64String(buffer.ToArray())}";
+                pendingImages.Add((file.Name, dataUri));
+                accepted++;
+            }
+            catch (IOException)
+            {
+                SetStatus($"'{file.Name}' is too large (max 5 MB).");
+            }
+            catch (Exception ex) when (ex is JSException or InvalidOperationException)
+            {
+                SetStatus($"Could not read '{file.Name}': {ex.Message}");
+            }
+        }
+    }
+
+    private static string? GuessMediaType(IBrowserFile file)
+    {
+        if (!string.IsNullOrWhiteSpace(file.ContentType)
+            && file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        {
+            // Some browsers report image/jpg — normalize to the registered type.
+            return file.ContentType.Equals("image/jpg", StringComparison.OrdinalIgnoreCase)
+                ? "image/jpeg"
+                : file.ContentType.ToLowerInvariant();
+        }
+
+        return Path.GetExtension(file.Name).ToLowerInvariant() switch
+        {
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
+            ".gif" => "image/gif",
+            _ => null,
+        };
+    }
+
+    private void RemoveImage(int index)
+    {
+        if (index >= 0 && index < pendingImages.Count)
+            pendingImages.RemoveAt(index);
+    }
+
+    // --- voice input (Web Speech API, vi-VN) ------------------------------
+
+    private async Task ToggleVoice()
+    {
+        if (module is null || selfReference is null) return;
+
+        if (listening)
+        {
+            await module.InvokeVoidAsync("stopVoice");
+            return;
+        }
+
+        var started = await module.InvokeAsync<bool>(
+            "startVoice", selfReference, "vi-VN", messageText ?? string.Empty);
+
+        if (started)
+        {
+            listening = true;
+        }
+        else
+        {
+            SetStatus("Voice input isn't supported in this browser — try Chrome or Edge.");
+        }
+    }
+
+    [JSInvokable]
+    public void OnVoiceTranscript(string text)
+    {
+        messageText = text;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnVoiceEnd()
+    {
+        listening = false;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnVoiceError(string error)
+    {
+        listening = false;
+        SetStatus(error switch
+        {
+            "not-allowed" or "service-not-allowed" => "Microphone permission denied.",
+            "no-speech" => "Didn't hear anything — try again.",
+            "audio-capture" => "No microphone found.",
+            _ => "Voice input stopped unexpectedly.",
+        });
+        StateHasChanged();
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -53,14 +430,40 @@
         {
             try
             {
-                var module = await JS.InvokeAsync<IJSObjectReference>(
+                module = await JS.InvokeAsync<IJSObjectReference>(
                     "import", "./Components/Pages/Chat/ChatInput.razor.js");
                 await module.InvokeVoidAsync("init", textArea);
-                await module.DisposeAsync();
+
+                selfReference = DotNetObjectReference.Create(this);
+                voiceSupported = await module.InvokeAsync<bool>("supportsVoice");
+                StateHasChanged();
             }
             catch (JSDisconnectedException)
             {
             }
         }
+
+        if (focusMenuOnNextRender)
+        {
+            focusMenuOnNextRender = false;
+            if (menuOpen)
+                await menuList.FocusAsync();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (module is not null)
+        {
+            try
+            {
+                if (listening) await module.InvokeVoidAsync("stopVoice");
+                await module.DisposeAsync();
+            }
+            catch (JSDisconnectedException) { }
+            catch (ObjectDisposedException) { }
+        }
+
+        selfReference?.Dispose();
     }
 }

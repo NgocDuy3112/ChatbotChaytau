@@ -51,11 +51,115 @@ textarea {
 
     .attach svg { width: 1.125rem; height: 1.125rem; }
 
+.model-picker {
+    /* Flex child in .tools: pushes itself + send button right. */
+    margin-left: auto;
+    position: relative;
+    /* Stacks the menu (and its backdrop) above the chat surface. */
+    z-index: 60;
+}
+
+.model-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: min(24rem, 55vw);
+    padding: 6px var(--space-2);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+
+    .model-trigger:hover,
+    .model-trigger:focus-visible,
+    .model-trigger.is-open {
+        color: var(--text);
+        border-color: var(--accent);
+        outline: none;
+    }
+
+.model-trigger-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chevron {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+    transition: transform var(--dur) var(--ease);
+}
+
+.model-trigger.is-open .chevron { transform: rotate(180deg); }
+
+/* Transparent full-screen layer: any outside click closes the menu. */
+.model-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: transparent;
+}
+
+.model-menu {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    right: 0;
+    z-index: 50;
+    min-width: 270px;
+    max-height: min(40vh, 320px);
+    overflow-y: auto;
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    background: var(--surface-raised);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    box-shadow: 0 12px 32px light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.55));
+}
+
+    .model-menu:focus { outline: none; }
+
+    .model-menu:focus-visible { border-color: var(--accent); }
+
+.model-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+
+    .model-item:hover,
+    .model-item.is-active {
+        color: var(--text);
+        background: var(--surface);
+    }
+
+    .model-item[aria-selected="true"] {
+        color: var(--text);
+        font-weight: 600;
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+    }
+
+.model-item-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
     /* Hide the native control; the label is the button. */
     .attach ::deep input[type=file] { display: none; }
 
 .send-button {
-    margin-left: auto;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -72,3 +176,154 @@ textarea {
     .send-button:hover { background: var(--accent-hover); }
 
     .send-button svg { width: 1.125rem; height: 1.125rem; }
+
+/* --- Small screens ----------------------------------------------------- */
+
+@media (max-width: 600px) {
+    .model-trigger {
+        max-width: 44vw;
+        padding: 8px var(--space-2);
+    }
+
+    .model-menu {
+        min-width: min(270px, 86vw);
+        max-height: 50vh;
+    }
+
+    /* Comfortable tap targets. */
+    .attach,
+    .send-button {
+        width: 40px;
+        height: 40px;
+    }
+
+    textarea { font-size: 1rem; } /* stops iOS zoom-on-focus */
+}
+
+/* --- Tool buttons (camera / images / mic) ------------------------------ */
+
+.tool-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+
+.tool-btn:hover { color: var(--text); background: var(--surface); }
+.tool-btn svg { width: 1.125rem; height: 1.125rem; }
+
+/* Hide the native file inputs; the label is the button. */
+.tool-btn ::deep input[type=file] { display: none; }
+
+.tool-btn.mic[disabled] { opacity: .4; cursor: not-allowed; }
+.tool-btn.mic[disabled]:hover { color: var(--text-muted); background: transparent; }
+
+.tool-btn.mic.is-listening {
+    color: var(--accent);
+    animation: mic-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes mic-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tool-btn.mic.is-listening { animation: none; }
+}
+
+/* --- Pending image chips ---------------------------------------------- */
+
+.image-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: var(--space-2);
+}
+
+.image-chip {
+    position: relative;
+    width: 44px;
+    height: 44px;
+}
+
+.image-chip img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid var(--border-strong);
+}
+
+.image-chip-remove {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    font-size: .75rem;
+    line-height: 1;
+    color: #fff;
+    background: var(--danger);
+    border: 0;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.image-count {
+    font-size: .72rem;
+    color: var(--text-muted);
+    margin-left: auto;
+}
+
+/* --- Mode switch (Auto / Ask / Agent) --------------------------------- */
+
+.mode-switch {
+    display: inline-flex;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.mode-option {
+    padding: 6px 9px;
+    font-size: .72rem;
+    font-weight: 600;
+    letter-spacing: .01em;
+    color: var(--text-muted);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+
+.mode-option + .mode-option { border-left: 1px solid var(--border); }
+
+.mode-option:hover { color: var(--text); background: var(--surface); }
+
+.mode-option.is-active {
+    color: var(--accent-contrast);
+    background: var(--accent);
+}
+
+.mode-option:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+/* --- Small screens ------------------------------------------------------ */
+
+@media (max-width: 600px) {
+    .tools { flex-wrap: wrap; row-gap: var(--space-2); }
+    .mode-option { padding: 7px 10px; font-size: .75rem; }
+    .image-chip { width: 40px; height: 40px; }
+}
