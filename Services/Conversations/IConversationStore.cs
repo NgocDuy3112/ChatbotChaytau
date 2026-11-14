@@ -1,6 +1,6 @@
-using chatbotchaytau.Data;
+using aida.Data;
 
-namespace chatbotchaytau.Services.Conversations;
+namespace aida.Services.Conversations;
 
 public record ChatMessageRecord(string Role, string Text);
 

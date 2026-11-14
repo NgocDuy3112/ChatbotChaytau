@@ -1,8 +1,8 @@
 using System.Security.Claims;
-using chatbotchaytau.Data;
+using aida.Data;
 using Microsoft.AspNetCore.Identity;
 
-namespace chatbotchaytau.Extensions;
+namespace aida.Extensions;
 
 public static class AuthEndpointExtensions
 {

@@ -1,10 +1,10 @@
 using System.Text;
-using chatbotchaytau.Services.Documents;
-using chatbotchaytau.Services.Usage;
+using aida.Services.Documents;
+using aida.Services.Usage;
 using Microsoft.Extensions.AI;
 using OpenAI;
 
-namespace chatbotchaytau.Services.Agents;
+namespace aida.Services.Agents;
 
 /// <summary>
 /// parallel_research: the harness's fan-out tool. Runs up to

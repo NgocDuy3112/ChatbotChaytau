@@ -1,9 +1,9 @@
 using System.Diagnostics;
-using chatbotchaytau.Data;
+using aida.Data;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.AI;
 
-namespace chatbotchaytau.Services.Usage;
+namespace aida.Services.Usage;
 
 /// <summary>
 /// IChatClient middleware that records one <see cref="UsageEvent"/> per

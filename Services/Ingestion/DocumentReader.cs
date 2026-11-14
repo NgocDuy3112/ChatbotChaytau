@@ -1,6 +1,6 @@
 using Microsoft.Extensions.DataIngestion;
 
-namespace chatbotchaytau.Services.Ingestion;
+namespace aida.Services.Ingestion;
 
 internal sealed class DocumentReader(DirectoryInfo rootDirectory) : IngestionDocumentReader
 {

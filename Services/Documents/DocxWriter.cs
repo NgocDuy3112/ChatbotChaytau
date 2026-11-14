@@ -2,7 +2,7 @@ using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 
-namespace chatbotchaytau.Services.Documents;
+namespace aida.Services.Documents;
 
 /// <summary>Markdown-lite → .docx via the OpenXml SDK (already a project
 /// dependency). Bullets render as "• " paragraphs — no numbering.xml part in v1.</summary>

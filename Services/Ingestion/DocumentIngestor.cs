@@ -1,10 +1,10 @@
-using chatbotchaytau.Data;
+using aida.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DataIngestion;
 using Pgvector;
 
-namespace chatbotchaytau.Services.Ingestion;
+namespace aida.Services.Ingestion;
 
 /// <summary>
 /// Chunks and embeds one uploaded document into Postgres. Replaces the whole-folder

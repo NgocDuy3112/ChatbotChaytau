@@ -1,11 +1,11 @@
 using System.Text;
-using chatbotchaytau.Services.Documents;
+using aida.Services.Documents;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using UglyToad.PdfPig;
 using QuestPDF.Infrastructure;
 
-namespace chatbotchaytau.Tests.Services;
+namespace aida.Tests.Services;
 
 public class DocumentGenerationTests
 {

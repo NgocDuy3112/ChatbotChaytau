@@ -1,9 +1,9 @@
 using System.Text.Json;
-using chatbotchaytau.Data;
+using aida.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 
-namespace chatbotchaytau.Services.Conversations;
+namespace aida.Services.Conversations;
 
 public class ConversationStore(
     IServiceScopeFactory scopeFactory,
@@ -13,7 +13,7 @@ public class ConversationStore(
     /// reloads without ever showing stale titles for long.</summary>
     private static readonly TimeSpan ListCacheTtl = TimeSpan.FromSeconds(60);
 
-    private static string ListKey(string userId) => $"chatbotchaytau:conversations:{userId}";
+    private static string ListKey(string userId) => $"aida:conversations:{userId}";
     private async Task<T> WithDbAsync<T>(Func<AppDbContext, Task<T>> work, CancellationToken ct)
     {
         await using var scope = scopeFactory.CreateAsyncScope();

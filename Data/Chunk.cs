@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations.Schema;
 using Pgvector;
 
-namespace chatbotchaytau.Data;
+namespace aida.Data;
 
 public class Chunk
 {

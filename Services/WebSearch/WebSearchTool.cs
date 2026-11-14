@@ -3,7 +3,7 @@ using Microsoft.Extensions.AI;
 using System.Text;
 using System.Text.Json;
 
-namespace chatbotchaytau.Services.WebSearch;
+namespace aida.Services.WebSearch;
 
 /// <summary>
 /// Tavily-backed web_search tool for the agent harness. Registers ONLY when

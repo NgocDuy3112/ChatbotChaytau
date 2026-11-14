@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\chatbotchaytau.csproj" />
+    <ProjectReference Include="..\..\aida.csproj" />
   </ItemGroup>
 
 </Project>

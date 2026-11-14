@@ -1,7 +1,7 @@
-using chatbotchaytau.Services.Usage;
+using aida.Services.Usage;
 using Microsoft.Extensions.Configuration;
 
-namespace chatbotchaytau.Tests.Services;
+namespace aida.Tests.Services;
 
 public class PricingTableTests
 {

@@ -1,9 +1,9 @@
-using chatbotchaytau.Data;
+using aida.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Pgvector;
 
-namespace chatbotchaytau.Services;
+namespace aida.Services;
 
 /// <summary>Hybrid retrieval over a single owner's chunks.</summary>
 public class SemanticSearch(

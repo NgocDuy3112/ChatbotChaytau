@@ -2,7 +2,7 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using Microsoft.Extensions.DataIngestion;
 
-namespace chatbotchaytau.Services.Ingestion;
+namespace aida.Services.Ingestion;
 
 internal sealed class DocxIngestionReader : IngestionDocumentReader
 {

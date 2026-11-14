@@ -1,11 +1,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-COPY chatbotchaytau.csproj ./
+COPY aida.csproj ./
 RUN dotnet restore
 
 COPY . .
-RUN dotnet publish chatbotchaytau.csproj -c Release -o /out /p:UseAppHost=false
+RUN dotnet publish aida.csproj -c Release -o /out /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
@@ -21,4 +21,4 @@ RUN mkdir -p /app/App_Data/documents && chown -R $APP_UID:$APP_UID /app/App_Data
 USER $APP_UID
 EXPOSE 8080
 
-ENTRYPOINT ["dotnet", "chatbotchaytau.dll"]
+ENTRYPOINT ["dotnet", "aida.dll"]

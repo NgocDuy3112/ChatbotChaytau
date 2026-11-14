@@ -1,14 +1,14 @@
-using chatbotchaytau.Components;
-using chatbotchaytau.Data;
-using chatbotchaytau.Extensions;
-using chatbotchaytau.Services;
-using chatbotchaytau.Services.Conversations;
-using chatbotchaytau.Services.Documents;
-using chatbotchaytau.Services.Ingestion;
-using chatbotchaytau.Services.Agents;
-using chatbotchaytau.Services.RateLimit;
-using chatbotchaytau.Services.Usage;
-using chatbotchaytau.Services.WebSearch;
+using aida.Components;
+using aida.Data;
+using aida.Extensions;
+using aida.Services;
+using aida.Services.Conversations;
+using aida.Services.Documents;
+using aida.Services.Ingestion;
+using aida.Services.Agents;
+using aida.Services.RateLimit;
+using aida.Services.Usage;
+using aida.Services.WebSearch;
 using DotNetEnv;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
@@ -48,18 +48,18 @@ if (redisEnabled)
     // Cookie encryption keys live in Redis — restarts/redeploys no longer
     // log everyone out (previously keys died with the container filesystem).
     builder.Services.AddDataProtection()
-        .SetApplicationName("chatbotchaytau")
-        .PersistKeysToStackExchangeRedis(redis, "chatbotchaytau:data-protection");
+        .SetApplicationName("aida")
+        .PersistKeysToStackExchangeRedis(redis, "aida:data-protection");
 
     builder.Services.AddStackExchangeRedisCache(o =>
     {
         o.Configuration = redisConnection;
-        o.InstanceName = "chatbotchaytau:";
+        o.InstanceName = "aida:";
     });
 }
 else
 {
-    builder.Services.AddDataProtection().SetApplicationName("chatbotchaytau");
+    builder.Services.AddDataProtection().SetApplicationName("aida");
     builder.Services.AddDistributedMemoryCache();
 }
 

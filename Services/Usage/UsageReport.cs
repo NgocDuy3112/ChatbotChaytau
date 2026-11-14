@@ -1,7 +1,7 @@
-using chatbotchaytau.Data;
+using aida.Data;
 using Microsoft.EntityFrameworkCore;
 
-namespace chatbotchaytau.Services.Usage;
+namespace aida.Services.Usage;
 
 public sealed record ModelStat(string Model, long Requests, long PromptTokens, long CompletionTokens, decimal Cost);
 

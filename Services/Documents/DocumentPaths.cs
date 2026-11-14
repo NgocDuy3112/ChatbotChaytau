@@ -1,4 +1,4 @@
-namespace chatbotchaytau.Services.Documents;
+namespace aida.Services.Documents;
 
 /// <summary>
 /// Resolves document paths strictly inside App_Data/documents/{ownerId}/ —

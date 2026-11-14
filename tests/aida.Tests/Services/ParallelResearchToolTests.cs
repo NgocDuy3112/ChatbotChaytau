@@ -1,13 +1,13 @@
 using System.ClientModel;
-using chatbotchaytau.Data;
-using chatbotchaytau.Services.Agents;
-using chatbotchaytau.Services.Usage;
+using aida.Data;
+using aida.Services.Agents;
+using aida.Services.Usage;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
 using OpenAI;
 
-namespace chatbotchaytau.Tests.Services;
+namespace aida.Tests.Services;
 
 public class ParallelResearchToolTests
 {
@@ -22,7 +22,7 @@ public class ParallelResearchToolTests
     private sealed class FakeWebHostEnvironment : IWebHostEnvironment
     {
         public string EnvironmentName { get; set; } = "Test";
-        public string ApplicationName { get; set; } = "chatbotchaytau.Tests";
+        public string ApplicationName { get; set; } = "aida.Tests";
         public string ContentRootPath { get; set; } = Path.GetTempPath();
         public IFileProvider ContentRootFileProvider { get; set; } = null!;
         public string WebRootPath { get; set; } = Path.GetTempPath();

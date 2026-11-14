@@ -1,11 +1,11 @@
 using System.Runtime.CompilerServices;
-using chatbotchaytau.Data;
+using aida.Data;
 using System.Text;
-using chatbotchaytau.Services.Usage;
+using aida.Services.Usage;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 
-namespace chatbotchaytau.Tests.Services;
+namespace aida.Tests.Services;
 
 public class UsageReportingChatClientTests
 {

@@ -1,6 +1,6 @@
-using chatbotchaytau.Extensions;
+using aida.Extensions;
 
-namespace chatbotchaytau.Tests.Extensions;
+namespace aida.Tests.Extensions;
 
 public class SafeReturnUrlTests
 {

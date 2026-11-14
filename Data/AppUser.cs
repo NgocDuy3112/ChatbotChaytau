@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 
-namespace chatbotchaytau.Data;
+namespace aida.Data;
 
 public class AppUser : IdentityUser
 {

@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace chatbotchaytau.Services.Documents;
+namespace aida.Services.Documents;
 
 /// <summary>A markdown-lite block: the subset the model reliably produces and
 /// both document writers can render.</summary>

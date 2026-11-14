@@ -1,4 +1,4 @@
-namespace chatbotchaytau.Services;
+namespace aida.Services;
 
 /// <summary>A provider's brand mark for the model picker.</summary>
 /// <param name="BrandColor">Brand hex color, e.g. "#4285F4".</param>

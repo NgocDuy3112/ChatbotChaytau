@@ -1,11 +1,11 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using chatbotchaytau.Services;
+using aida.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace chatbotchaytau.Tests.Services;
+namespace aida.Tests.Services;
 
 public class SystemOneRouterTests
 {
