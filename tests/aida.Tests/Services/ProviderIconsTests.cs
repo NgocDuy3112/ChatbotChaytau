@@ -1,6 +1,6 @@
-using chatbotchaytau.Services;
+using aida.Services;
 
-namespace chatbotchaytau.Tests.Services;
+namespace aida.Tests.Services;
 
 public class ProviderIconsTests
 {

@@ -1,4 +1,4 @@
-namespace chatbotchaytau.Data;
+namespace aida.Data;
 
 public class Conversation
 {

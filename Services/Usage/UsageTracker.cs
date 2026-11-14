@@ -1,6 +1,6 @@
-using chatbotchaytau.Data;
+using aida.Data;
 
-namespace chatbotchaytau.Services.Usage;
+namespace aida.Services.Usage;
 
 /// <summary>Records one usage event per LLM call. Fire-and-forget safe.</summary>
 public interface IUsageTracker

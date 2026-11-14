@@ -1,10 +1,10 @@
-using chatbotchaytau.Data;
+using aida.Data;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Pgvector.EntityFrameworkCore;
 
-namespace chatbotchaytau.Extensions;
+namespace aida.Extensions;
 
 public static class IdentityExtensions
 {

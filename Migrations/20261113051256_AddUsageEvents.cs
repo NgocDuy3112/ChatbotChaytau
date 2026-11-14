@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace chatbotchaytau.Migrations
+namespace aida.Migrations
 {
     /// <inheritdoc />
     public partial class AddUsageEvents : Migration

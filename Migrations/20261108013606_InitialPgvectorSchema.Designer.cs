@@ -6,11 +6,11 @@ using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Pgvector;
-using chatbotchaytau.Data;
+using aida.Data;
 
 #nullable disable
 
-namespace chatbotchaytau.Migrations
+namespace aida.Migrations
 {
     [DbContext(typeof(AppDbContext))]
     [Migration("20261108013606_InitialPgvectorSchema")]
@@ -159,7 +159,7 @@ namespace chatbotchaytau.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
-            modelBuilder.Entity("chatbotchaytau.Data.AppUser", b =>
+            modelBuilder.Entity("aida.Data.AppUser", b =>
                 {
                     b.Property<string>("Id")
                         .HasColumnType("text");
@@ -229,7 +229,7 @@ namespace chatbotchaytau.Migrations
                     b.ToTable("AspNetUsers", (string)null);
                 });
 
-            modelBuilder.Entity("chatbotchaytau.Data.ChatMessageRow", b =>
+            modelBuilder.Entity("aida.Data.ChatMessageRow", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -260,7 +260,7 @@ namespace chatbotchaytau.Migrations
                     b.ToTable("ChatMessages");
                 });
 
-            modelBuilder.Entity("chatbotchaytau.Data.Chunk", b =>
+            modelBuilder.Entity("aida.Data.Chunk", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -291,7 +291,7 @@ namespace chatbotchaytau.Migrations
                     b.ToTable("Chunks");
                 });
 
-            modelBuilder.Entity("chatbotchaytau.Data.Conversation", b =>
+            modelBuilder.Entity("aida.Data.Conversation", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -330,7 +330,7 @@ namespace chatbotchaytau.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
                 {
-                    b.HasOne("chatbotchaytau.Data.AppUser", null)
+                    b.HasOne("aida.Data.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -339,7 +339,7 @@ namespace chatbotchaytau.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
                 {
-                    b.HasOne("chatbotchaytau.Data.AppUser", null)
+                    b.HasOne("aida.Data.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -354,7 +354,7 @@ namespace chatbotchaytau.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("chatbotchaytau.Data.AppUser", null)
+                    b.HasOne("aida.Data.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -363,16 +363,16 @@ namespace chatbotchaytau.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
                 {
-                    b.HasOne("chatbotchaytau.Data.AppUser", null)
+                    b.HasOne("aida.Data.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("chatbotchaytau.Data.ChatMessageRow", b =>
+            modelBuilder.Entity("aida.Data.ChatMessageRow", b =>
                 {
-                    b.HasOne("chatbotchaytau.Data.Conversation", "Conversation")
+                    b.HasOne("aida.Data.Conversation", "Conversation")
                         .WithMany("Messages")
                         .HasForeignKey("ConversationId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -381,9 +381,9 @@ namespace chatbotchaytau.Migrations
                     b.Navigation("Conversation");
                 });
 
-            modelBuilder.Entity("chatbotchaytau.Data.Conversation", b =>
+            modelBuilder.Entity("aida.Data.Conversation", b =>
                 {
-                    b.HasOne("chatbotchaytau.Data.AppUser", "User")
+                    b.HasOne("aida.Data.AppUser", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -392,7 +392,7 @@ namespace chatbotchaytau.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("chatbotchaytau.Data.Conversation", b =>
+            modelBuilder.Entity("aida.Data.Conversation", b =>
                 {
                     b.Navigation("Messages");
                 });

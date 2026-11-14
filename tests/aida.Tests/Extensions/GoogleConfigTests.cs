@@ -1,7 +1,7 @@
-using chatbotchaytau.Extensions;
+using aida.Extensions;
 using Microsoft.Extensions.Configuration;
 
-namespace chatbotchaytau.Tests.Extensions;
+namespace aida.Tests.Extensions;
 
 public class GoogleConfigTests
 {

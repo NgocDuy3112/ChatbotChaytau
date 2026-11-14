@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: chatbotchaytau-app
+    container_name: aida-app
     restart: unless-stopped
     depends_on:
       postgres:
@@ -23,7 +23,7 @@ services:
 
   postgres:
     image: docker.io/pgvector/pgvector:pg17
-    container_name: chatbotchaytau-postgresql
+    container_name: aida-postgresql
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -32,7 +32,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - chatbotchaytau-postgresql:/var/lib/postgresql/data
+      - aida-postgresql:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -40,12 +40,12 @@ services:
       retries: 10
 
 volumes:
-  chatbotchaytau-postgresql:
+  aida-postgresql:
     external: true
 
   redis:
     image: docker.io/redis:7-alpine
-    container_name: chatbotchaytau-redis
+    container_name: aida-redis
     restart: unless-stopped
     ports:
       - "127.0.0.1:6379:6379"

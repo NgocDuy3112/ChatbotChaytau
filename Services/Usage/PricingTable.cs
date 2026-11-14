@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace chatbotchaytau.Services.Usage;
+namespace aida.Services.Usage;
 
 /// <summary>
 /// USD per 1M token prices from <c>OpenRouter:Pricing</c> (seeded from the live

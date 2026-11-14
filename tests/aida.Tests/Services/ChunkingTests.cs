@@ -1,6 +1,6 @@
-using chatbotchaytau.Services.Ingestion;
+using aida.Services.Ingestion;
 
-namespace chatbotchaytau.Tests.Services;
+namespace aida.Tests.Services;
 
 public class ChunkingTests
 {

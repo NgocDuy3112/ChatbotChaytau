@@ -1,4 +1,4 @@
-namespace chatbotchaytau.Data;
+namespace aida.Data;
 
 /// <summary>
 /// One LLM call: what it cost, how long it took, whether it worked.

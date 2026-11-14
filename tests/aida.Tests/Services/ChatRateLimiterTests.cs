@@ -1,8 +1,8 @@
-using chatbotchaytau.Services.RateLimit;
+using aida.Services.RateLimit;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace chatbotchaytau.Tests.Services;
+namespace aida.Tests.Services;
 
 public class ChatRateLimiterTests
 {

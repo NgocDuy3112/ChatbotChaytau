@@ -2,7 +2,7 @@
 
 #nullable disable
 
-namespace chatbotchaytau.Migrations
+namespace aida.Migrations
 {
     /// <inheritdoc />
     public partial class AddChunkOwnerScope : Migration

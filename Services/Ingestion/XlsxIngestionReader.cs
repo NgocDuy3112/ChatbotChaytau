@@ -2,7 +2,7 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using Microsoft.Extensions.DataIngestion;
 
-namespace chatbotchaytau.Services.Ingestion;
+namespace aida.Services.Ingestion;
 
 internal sealed class XlsxIngestionReader : IngestionDocumentReader
 {

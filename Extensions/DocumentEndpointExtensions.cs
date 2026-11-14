@@ -1,7 +1,7 @@
 using System.Security.Claims;
-using chatbotchaytau.Services.Documents;
+using aida.Services.Documents;
 
-namespace chatbotchaytau.Extensions;
+namespace aida.Extensions;
 
 public static class DocumentEndpointExtensions
 {

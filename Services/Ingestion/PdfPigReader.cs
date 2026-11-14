@@ -4,7 +4,7 @@ using UglyToad.PdfPig.Content;
 using UglyToad.PdfPig.DocumentLayoutAnalysis.PageSegmenter;
 using UglyToad.PdfPig.DocumentLayoutAnalysis.WordExtractor;
 
-namespace chatbotchaytau.Services.Ingestion;
+namespace aida.Services.Ingestion;
 
 internal sealed class PdfPigReader : IngestionDocumentReader
 {

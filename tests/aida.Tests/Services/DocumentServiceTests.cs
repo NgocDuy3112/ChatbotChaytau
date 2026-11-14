@@ -1,7 +1,7 @@
-using chatbotchaytau.Services.Documents;
+using aida.Services.Documents;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace chatbotchaytau.Tests.Services;
+namespace aida.Tests.Services;
 
 public class DocumentServiceTests
 {

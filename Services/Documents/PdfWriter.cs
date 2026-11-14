@@ -2,7 +2,7 @@ using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 
-namespace chatbotchaytau.Services.Documents;
+namespace aida.Services.Documents;
 
 /// <summary>Markdown-lite → PDF via QuestPDF. Requires
 /// QuestPDF.Settings.License to be set once at startup (Program.cs).</summary>

@@ -4,7 +4,7 @@ using System.ClientModel;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 
-namespace chatbotchaytau.Tests.Spike;
+namespace aida.Tests.Spike;
 
 /// <summary>
 /// Day 3 Block 0 — the Microsoft Agent Framework gate.

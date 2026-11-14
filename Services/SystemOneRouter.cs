@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace chatbotchaytau.Services;
+namespace aida.Services;
 
 public class SystemOneRouter(HttpClient http, IConfiguration config, ILogger<SystemOneRouter> logger)
 {

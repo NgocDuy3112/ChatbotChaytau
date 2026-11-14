@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using StackExchange.Redis;
 
-namespace chatbotchaytau.Services.RateLimit;
+namespace aida.Services.RateLimit;
 
 /// <summary>Admission control for chat sends — protects OpenRouter spend.</summary>
 public interface IChatRateLimiter
@@ -66,7 +66,7 @@ internal class ChatRateLimiter : IChatRateLimiter
         {
             var db = _redis!.GetDatabase();
             // Minute-bucket key: the window rolls over by key name — no cleanup needed.
-            var key = $"chatbotchaytau:rl:chat:{userId}:{UtcNow:yyyyMMddHHmm}";
+            var key = $"aida:rl:chat:{userId}:{UtcNow:yyyyMMddHHmm}";
             var count = await db.StringIncrementAsync(key);
             if (count == 1)
                 await db.KeyExpireAsync(key, TimeSpan.FromSeconds(70));

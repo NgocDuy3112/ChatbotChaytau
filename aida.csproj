@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="chatbotchaytau.Tests" />
+    <InternalsVisibleTo Include="aida.Tests" />
   </ItemGroup>
 
   <!-- Test project lives under this directory; keep it out of the app's compile. -->

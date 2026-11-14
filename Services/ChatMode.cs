@@ -1,4 +1,4 @@
-namespace chatbotchaytau.Services;
+namespace aida.Services;
 
 /// <summary>User-selectable chat behavior, switched from the input toolbar.
 /// Binary by design: plain Q&A vs. an agent that works with tools.</summary>

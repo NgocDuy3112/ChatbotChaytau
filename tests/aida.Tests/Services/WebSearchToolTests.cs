@@ -1,7 +1,7 @@
-using chatbotchaytau.Services.WebSearch;
+using aida.Services.WebSearch;
 using Microsoft.Extensions.Configuration;
 
-namespace chatbotchaytau.Tests.Services;
+namespace aida.Tests.Services;
 
 public class WebSearchToolTests
 {

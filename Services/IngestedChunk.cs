@@ -1,4 +1,4 @@
-namespace chatbotchaytau.Services;
+namespace aida.Services;
 
 public class IngestedChunk
 {

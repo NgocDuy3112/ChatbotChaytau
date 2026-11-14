@@ -1,6 +1,6 @@
-using chatbotchaytau.Services.Ingestion;
+using aida.Services.Ingestion;
 
-namespace chatbotchaytau.Services.Documents;
+namespace aida.Services.Documents;
 
 /// <summary>Saves an uploaded file under its owner and ingests it.</summary>
 public class DocumentService(
